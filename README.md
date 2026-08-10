@@ -20,6 +20,9 @@ client, draws a 4K frame in a single GPU pass, and is 124× larger in bits.
 | Time to draw one       | ~3 s                 | One frame               |
 | Geometry               | Plane only           | Plane or sphere         |
 
+**Picking this up?** [HANDOFF.md](HANDOFF.md) is the orientation document: the state model,
+the invariants that must not break, the traps already discovered, and where things stand.
+
 ## The idea
 
 An address **is** its image. Read the pixels row by row, each channel most-significant

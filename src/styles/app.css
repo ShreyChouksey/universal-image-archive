@@ -1,0 +1,966 @@
+/*
+ * Universal Image Archive
+ *
+ * The chrome carries no accent hue. The subject of this interface is 281.5
+ * trillion colours; anything tinted in the furniture competes with the work on
+ * the stage. Interactive state is expressed through bone at full strength, a
+ * hairline, and position — never through a signal colour. The only chromatic
+ * marks in the whole document are the three channel letters in the loupe, where
+ * hue is genuinely carrying data.
+ *
+ * The ground is a warm graphite rather than a neutral black so that the noise
+ * fields, which average to a neutral grey, read as luminous against it.
+ *
+ * Dark only, deliberately: this is a viewing bench for images at full depth,
+ * and a light surround would bias every judgement made at it.
+ */
+
+:root {
+  --ground: #151311;
+  --panel: #1d1a17;
+  --raised: #262119;
+  --rule: #332e27;
+  --rule-strong: #453d33;
+
+  --ink: #f0eae0;
+  --ink-2: #a79d8e;
+  --ink-3: #6e6558;
+
+  --ch-r: #d9705c;
+  --ch-g: #8cbe79;
+  --ch-b: #6e9ad1;
+
+  --rail-h: 44px;
+  --bench-h: 132px;
+  --drawer-w: 380px;
+
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --fast: 120ms;
+  --base: 180ms;
+
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --serif: ui-serif, 'New York', Georgia, 'Times New Roman', serif;
+  --mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/*
+ * Several components below set `display` on a class, which outranks the user
+ * agent's `[hidden] { display: none }` and leaves them permanently visible.
+ * Restate it here so `hidden` means hidden everywhere.
+ */
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+:focus-visible {
+  outline: 1px solid var(--ink);
+  outline-offset: 2px;
+}
+
+button,
+select,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+/* ---------------------------------------------------------------- primitives */
+
+.label {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.dim {
+  color: var(--ink-3);
+}
+
+.hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+
+.prose {
+  margin: 0 0 14px;
+  max-width: 62ch;
+  font-family: var(--serif);
+  font-size: 14px;
+  line-height: 1.62;
+  color: var(--ink-2);
+}
+
+.prose em {
+  color: var(--ink);
+  font-style: italic;
+}
+
+.ghost {
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: none;
+  color: var(--ink-2);
+  font-size: 11px;
+  cursor: pointer;
+  transition: color var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+
+.ghost:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--rule-strong);
+}
+
+.ghost:disabled {
+  color: var(--ink-3);
+  cursor: default;
+}
+
+.primary {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 2px;
+  background: var(--raised);
+  color: var(--ink);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+
+.primary:hover:not(:disabled) {
+  background: #2f2921;
+  border-color: #574d40;
+}
+
+.primary:disabled {
+  color: var(--ink-3);
+  background: transparent;
+  cursor: default;
+}
+
+select,
+input[type='number'],
+input[type='text'] {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: var(--ground);
+  font-size: 12px;
+  transition: border-color var(--fast) var(--ease);
+}
+
+select:hover,
+input[type='number']:hover {
+  border-color: var(--rule-strong);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.field--split {
+  display: grid;
+  grid-template-columns: 1fr 96px;
+  gap: 12px;
+}
+
+.field--split > div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+kbd {
+  display: inline-block;
+  min-width: 20px;
+  padding: 1px 5px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 2px;
+  background: var(--panel);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-align: center;
+  color: var(--ink-2);
+}
+
+/* --------------------------------------------------------------------- frame */
+
+.frame {
+  display: grid;
+  grid-template-rows: var(--rail-h) 1fr auto;
+  height: 100%;
+}
+
+/* ---------------------------------------------------------------------- rail */
+
+.rail {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--panel);
+}
+
+.rail__mark {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.mark {
+  width: 15px;
+  height: 15px;
+  color: var(--ink-2);
+}
+
+.rail__title {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.rail__pipeline {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pipeline__dot {
+  width: 5px;
+  height: 5px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+
+.pipeline__dot[data-state='ready'] {
+  background: var(--ink);
+}
+
+.pipeline__dot[data-state='degraded'] {
+  background: var(--ink-3);
+  box-shadow: inset 0 0 0 1px var(--ink-2);
+}
+
+.rail__nav {
+  display: flex;
+  gap: 2px;
+}
+
+.tab {
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: none;
+  color: var(--ink-3);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: color var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+
+.tab:hover,
+.tab[aria-expanded='true'] {
+  color: var(--ink);
+  border-color: var(--rule-strong);
+}
+
+/* --------------------------------------------------------------------- stage */
+
+.stage {
+  position: relative;
+  overflow: hidden;
+  background: #000;
+  cursor: grab;
+  touch-action: none;
+}
+
+.stage:active {
+  cursor: grabbing;
+}
+
+.stage__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transition: opacity 400ms var(--ease);
+}
+
+.stage__canvas[data-live='true'] {
+  opacity: 1;
+}
+
+.stage__meta {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  display: flex;
+  gap: 14px;
+  padding: 4px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: rgba(21, 19, 17, 0.82);
+  backdrop-filter: blur(8px);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-2);
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------------------- loupe */
+
+.loupe {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 0 12px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: rgba(21, 19, 17, 0.86);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+
+.loupe__swatch {
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--rule-strong);
+  background: #000;
+}
+
+.loupe__values {
+  margin: 0;
+  display: grid;
+  gap: 1px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.loupe__values > div {
+  display: grid;
+  grid-template-columns: 12px auto;
+  gap: 8px;
+}
+
+.loupe__values dt {
+  font-weight: 600;
+}
+
+.loupe__values dt[data-ch='r'] {
+  color: var(--ch-r);
+}
+
+.loupe__values dt[data-ch='g'] {
+  color: var(--ch-g);
+}
+
+.loupe__values dt[data-ch='b'] {
+  color: var(--ch-b);
+}
+
+.loupe__values dd {
+  margin: 0;
+  color: var(--ink);
+}
+
+.loupe__offset {
+  grid-column: 1 / -1;
+  margin: 7px 0 0;
+  padding-top: 6px;
+  border-top: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------------- busy */
+
+.busy {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 10px;
+  background: rgba(10, 9, 8, 0.72);
+  backdrop-filter: blur(2px);
+}
+
+.busy__bar {
+  width: 220px;
+  height: 2px;
+  background: var(--rule);
+  overflow: hidden;
+}
+
+.busy__bar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--ink);
+  transition: width var(--base) linear;
+}
+
+.busy__label {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--ink-2);
+  text-align: center;
+}
+
+/* --------------------------------------------------------------------- bench */
+
+.bench {
+  display: grid;
+  grid-template-columns: minmax(280px, 1.6fr) auto minmax(260px, 1fr);
+  border-top: 1px solid var(--rule);
+  background: var(--panel);
+  min-height: var(--bench-h);
+}
+
+.bench > * {
+  padding: 12px 16px;
+}
+
+.bench__entry {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  border-right: 1px solid var(--rule);
+}
+
+.entry__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.entry__seed {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: var(--ground);
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  transition: border-color var(--fast) var(--ease);
+}
+
+.entry__seed:hover {
+  border-color: var(--rule-strong);
+}
+
+.entry__seed[data-invalid='true'] {
+  border-color: var(--ch-r);
+}
+
+.entry__address {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.address {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.address b {
+  font-weight: 400;
+  color: var(--ink);
+}
+
+.bench__transport {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  justify-content: center;
+  border-right: 1px solid var(--rule);
+}
+
+.transport__row {
+  display: flex;
+  gap: 4px;
+}
+
+.key {
+  min-width: 40px;
+  padding: 7px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: var(--ground);
+  color: var(--ink-2);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: color var(--fast) var(--ease), border-color var(--fast) var(--ease),
+    background var(--fast) var(--ease);
+}
+
+.key:hover {
+  color: var(--ink);
+  border-color: var(--rule-strong);
+  background: var(--raised);
+}
+
+.key[aria-pressed='true'] {
+  color: var(--ground);
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.key--wide {
+  flex: 1;
+}
+
+.transport__note {
+  margin: 2px 0 0;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--ink-3);
+  max-width: 26ch;
+}
+
+.bench__format {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-content: start;
+  gap: 10px 12px;
+}
+
+.scale {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 2px;
+  padding-top: 9px;
+  border-top: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.scale b {
+  font-weight: 400;
+  color: var(--ink-2);
+}
+
+/*
+ * A grid can be browsable and unresolvable at the same time. That is a state
+ * worth naming rather than a failure, so it reads as a note and not an alarm —
+ * hence a hairline and bone ink, not a warning colour.
+ */
+.scale__warn {
+  margin-top: 4px;
+  padding-top: 5px;
+  border-top: 1px solid var(--rule);
+  color: var(--ink-2);
+  max-width: 34ch;
+  line-height: 1.4;
+}
+
+.scale sup {
+  font-size: 9px;
+  /* Without this the raised baseline grows the line box and collides with the
+     line above it. */
+  line-height: 0;
+  vertical-align: 0.42em;
+}
+
+.bench__exports {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 6px;
+}
+
+/* -------------------------------------------------------------------- drawer */
+
+.drawer {
+  position: fixed;
+  top: var(--rail-h);
+  right: 0;
+  bottom: 0;
+  width: var(--drawer-w);
+  max-width: 92vw;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--rule);
+  background: var(--panel);
+  /* Closed by default and driven by data-open, so the panel can slide rather
+     than blink — `hidden` would remove it from layout mid-transition. */
+  transform: translateX(100%);
+  visibility: hidden;
+  transition: transform var(--base) var(--ease), visibility 0s linear var(--base);
+  z-index: 20;
+}
+
+.drawer[data-open='true'] {
+  transform: translateX(0);
+  visibility: visible;
+  transition: transform var(--base) var(--ease), visibility 0s;
+}
+
+.drawer__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.drawer__head h2 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 15px;
+  font-weight: 400;
+}
+
+.drawer__body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.drawer__body h3 {
+  margin: 6px 0 -6px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* ----------------------------------------------------------------- dropzone */
+
+.dropzone {
+  display: grid;
+  place-content: center;
+  gap: 3px;
+  padding: 26px 16px;
+  border: 1px dashed var(--rule-strong);
+  border-radius: 2px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+
+.dropzone:hover,
+.dropzone[data-over='true'] {
+  border-color: var(--ink-2);
+  background: var(--raised);
+}
+
+.dropzone__title {
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+.dropzone__hint {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.dropzone[data-loaded='true'] {
+  border-style: solid;
+  border-color: var(--rule-strong);
+}
+
+/* -------------------------------------------------------------------- tables */
+
+.keys {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.keys td {
+  padding: 5px 0;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-2);
+  vertical-align: top;
+}
+
+.keys td:first-child {
+  width: 88px;
+  white-space: nowrap;
+}
+
+.facts {
+  margin: 4px 0 0;
+  display: grid;
+  gap: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.facts > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.facts dt {
+  color: var(--ink-3);
+}
+
+.facts dd {
+  margin: 0;
+  color: var(--ink);
+  text-align: right;
+}
+
+/* -------------------------------------------------------------------- reader */
+
+/*
+ * A window onto 47 megabytes of number.
+ *
+ * Native scrolling cannot express this: three million rows would be a 62-million
+ * pixel element, past what a browser will lay out. So the rows are drawn for the
+ * visible window only and the slider carries the position — which is the honest
+ * device anyway, because a scrollbar thumb this small would be invisible and a
+ * slider you nudge by one pixel to move four thousand lines is the point.
+ */
+.reader {
+  height: 260px;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: var(--ground);
+  padding: 8px 0;
+  cursor: ns-resize;
+}
+
+.reader__rows {
+  display: grid;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+  white-space: pre;
+}
+
+.reader__row {
+  display: grid;
+  grid-template-columns: 92px 1fr 78px;
+  gap: 10px;
+  padding: 0 10px;
+  color: var(--ink-2);
+  cursor: pointer;
+  border: none;
+  background: none;
+  text-align: left;
+  font: inherit;
+}
+
+.reader__row:hover {
+  background: var(--raised);
+  color: var(--ink);
+}
+
+.reader__row b {
+  font-weight: 400;
+  color: var(--ink-3);
+}
+
+.reader__row i {
+  font-style: normal;
+  color: var(--ink-3);
+  text-align: right;
+}
+
+.reader__slider {
+  width: 100%;
+  margin: 10px 0 0;
+  accent-color: var(--ink);
+}
+
+.histogram {
+  width: 100%;
+  height: 64px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: var(--ground);
+}
+
+/* ------------------------------------------------------------------- verdict */
+
+/*
+ * TRUE and FALSE carry the same weight and the same colour. A plate that fails
+ * is not an error — it is a correct measurement of an image that was altered in
+ * transit — so divergence is shown by which digits brighten, never by a hue.
+ */
+.verdict {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--rule-strong);
+}
+
+.verdict__word {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 15px;
+  letter-spacing: 0.16em;
+  color: var(--ink);
+}
+
+.verdict__rows {
+  margin: 0;
+  display: grid;
+  gap: 3px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.verdict__rows > div {
+  display: grid;
+  grid-template-columns: 68px 1fr;
+  gap: 10px;
+}
+
+.verdict__rows dt {
+  color: var(--ink-3);
+}
+
+.verdict__rows dd {
+  margin: 0;
+  color: var(--ink-3);
+  letter-spacing: 0.04em;
+}
+
+/* Digits that differ between printed and computed. */
+.verdict__rows dd i {
+  font-style: normal;
+  color: var(--ink);
+}
+
+/* --------------------------------------------------------------------- toast */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  /* Not calc(var(--bench-h) + 20px): the narrow breakpoint sets --bench-h to
+     auto, which makes the calc invalid at computed-value time and drops the
+     toast to static position. A fixed offset is correct at every width. */
+  bottom: 24px;
+  transform: translateX(-50%);
+  padding: 7px 14px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 2px;
+  background: var(--raised);
+  font-size: 12px;
+  color: var(--ink);
+  z-index: 30;
+  animation: rise var(--base) var(--ease);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+}
+
+/* ------------------------------------------------------------------ narrow */
+
+@media (max-width: 900px) {
+  :root {
+    --bench-h: auto;
+  }
+
+  .bench {
+    grid-template-columns: 1fr;
+  }
+
+  .bench__entry,
+  .bench__transport {
+    border-right: none;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .rail__pipeline {
+    display: none;
+  }
+
+  .transport__note {
+    max-width: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

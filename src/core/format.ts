@@ -1,0 +1,213 @@
+/**
+ * Archive formats.
+ *
+ * An archive is defined by a pixel grid and a colour alphabet. Both must be
+ * finite and byte-aligned for the address<->image map to be a clean bijection,
+ * so channel depth is 8 or 16 bits — 16 being the deepest well-defined integer
+ * colour any mainstream still-image format (PNG, TIFF, EXR-as-half) can carry.
+ */
+
+/**
+ * How the grid is read.
+ *
+ * 'plane' is a window — the address is what is visible through a frame pointed
+ * one way. 'sphere' is a standpoint — the same bytes read as a 360° × 180°
+ * equirectangular field, so the address is everything visible from somewhere.
+ * The bytes and the bijection are identical; only the reading differs.
+ */
+export type Geometry = 'plane' | 'sphere';
+
+export interface Resolution {
+  readonly id: string;
+  readonly label: string;
+  readonly note: string;
+  readonly width: number;
+  readonly height: number;
+  readonly geometry: Geometry;
+}
+
+export const RESOLUTIONS: readonly Resolution[] = [
+  // The first two exceed what any browser can hold as bytes. They are here on
+  // purpose: browsing costs the same at two gigapixels as at 1080p, and a grid
+  // you can wander through but never possess is the clearest statement of what
+  // this archive actually is.
+  { id: 'uhd64k', label: '64K', note: '61440 × 34560 · browse only', width: 61440, height: 34560, geometry: 'plane' },
+  { id: 'uhd32k', label: '32K', note: '30720 × 17280 · browse only', width: 30720, height: 17280, geometry: 'plane' },
+  { id: 'uhd16k', label: '16K', note: '15360 × 8640', width: 15360, height: 8640, geometry: 'plane' },
+  { id: 'uhd8k', label: '8K UHD', note: '7680 × 4320', width: 7680, height: 4320, geometry: 'plane' },
+  { id: 'uhd5k', label: '5K', note: '5120 × 2880', width: 5120, height: 2880, geometry: 'plane' },
+  { id: 'uhd4k', label: '4K UHD', note: '3840 × 2160', width: 3840, height: 2160, geometry: 'plane' },
+  { id: 'dci4k', label: 'DCI 4K', note: '4096 × 2160', width: 4096, height: 2160, geometry: 'plane' },
+  { id: 'qhd', label: '1440p', note: '2560 × 1440', width: 2560, height: 1440, geometry: 'plane' },
+  { id: 'fhd', label: '1080p', note: '1920 × 1080', width: 1920, height: 1080, geometry: 'plane' },
+  { id: 'babelia', label: 'Babelia', note: '640 × 416', width: 640, height: 416, geometry: 'plane' },
+
+  // Equirectangular, always 2:1 — a full turn of longitude against half a turn
+  // of latitude. 8192 is not arbitrary: it is WebGPU's guaranteed
+  // maxTextureDimension2D, so it is the largest sphere a conforming device is
+  // required to be able to resolve.
+  { id: 'sph8k', label: 'Sphere 8K', note: '8192 × 4096', width: 8192, height: 4096, geometry: 'sphere' },
+  { id: 'sph6k', label: 'Sphere 6K', note: '6144 × 3072', width: 6144, height: 3072, geometry: 'sphere' },
+  { id: 'sph4k', label: 'Sphere 4K', note: '4096 × 2048', width: 4096, height: 2048, geometry: 'sphere' },
+  { id: 'sph2k', label: 'Sphere 2K', note: '2048 × 1024', width: 2048, height: 1024, geometry: 'sphere' },
+];
+
+export const GEOMETRIES: ReadonlyArray<{ id: Geometry; label: string; note: string }> = [
+  { id: 'plane', label: 'Plane', note: 'a window — one view, framed' },
+  { id: 'sphere', label: 'Sphere', note: 'a standpoint — everything visible from one place' },
+];
+
+export function resolutionsFor(geometry: Geometry): readonly Resolution[] {
+  return RESOLUTIONS.filter((r) => r.geometry === geometry);
+}
+
+/**
+ * The pixel index is a 32-bit Philox counter word, so a grid may not exceed
+ * 2^32 pixels. That is 65536 x 65536 — four orders of magnitude past anything
+ * a browser could materialise — but the bound is real, so it is stated.
+ */
+export const MAX_PIXELS = 2 ** 32;
+
+export interface Depth {
+  readonly id: string;
+  /** Bits per channel. */
+  readonly bpc: 8 | 16;
+  readonly label: string;
+  readonly note: string;
+  /** Bytes of address per pixel (3 channels). */
+  readonly bytesPerPixel: 3 | 6;
+  /** Largest value a channel can hold. */
+  readonly maxChannel: number;
+}
+
+export const DEPTHS: readonly Depth[] = [
+  {
+    id: 'd48',
+    bpc: 16,
+    label: '48-bit',
+    note: '281.47 trillion colours',
+    bytesPerPixel: 6,
+    maxChannel: 65535,
+  },
+  {
+    id: 'd24',
+    bpc: 8,
+    label: '24-bit',
+    note: '16.78 million colours',
+    bytesPerPixel: 3,
+    maxChannel: 255,
+  },
+];
+
+export interface ArchiveFormat {
+  readonly resolution: Resolution;
+  readonly depth: Depth;
+}
+
+/** Named explicitly rather than by index, so reordering the list cannot move it. */
+const DEFAULT_RESOLUTION = RESOLUTIONS.find((r) => r.id === 'uhd4k')!;
+const DEFAULT_SPHERE = RESOLUTIONS.find((r) => r.id === 'sph4k')!;
+
+export const DEFAULT_FORMAT: ArchiveFormat = {
+  resolution: DEFAULT_RESOLUTION,
+  depth: DEPTHS[0],
+};
+
+/**
+ * The grid to land on when switching geometry, or when an id does not resolve.
+ *
+ * Deliberately not `RESOLUTIONS[0]`: that is the 64K browse-only grid, and
+ * falling back to something that cannot be resolved would turn a mistyped URL
+ * into an archive that refuses to export.
+ */
+export function defaultResolutionFor(geometry: Geometry): Resolution {
+  return geometry === 'sphere' ? DEFAULT_SPHERE : DEFAULT_RESOLUTION;
+}
+
+export function resolutionById(id: string, geometry?: Geometry): Resolution {
+  const found = RESOLUTIONS.find((r) => r.id === id);
+  if (found && (!geometry || found.geometry === geometry)) return found;
+  return defaultResolutionFor(geometry ?? found?.geometry ?? 'plane');
+}
+
+export function depthById(id: string): Depth {
+  return DEPTHS.find((d) => d.id === id) ?? DEPTHS[0];
+}
+
+/** Pixels in one image. */
+export function pixelCount(f: ArchiveFormat): number {
+  return f.resolution.width * f.resolution.height;
+}
+
+/** Bytes in one address. */
+export function addressBytes(f: ArchiveFormat): number {
+  return pixelCount(f) * f.depth.bytesPerPixel;
+}
+
+/** Bits in one address — the log2 of the archive's size. */
+export function addressBits(f: ArchiveFormat): number {
+  return addressBytes(f) * 8;
+}
+
+export function formatKey(f: ArchiveFormat): string {
+  return `${f.resolution.id}.${f.depth.id}`;
+}
+
+// ---------------------------------------------------------------------------
+// What a browser will actually carry
+// ---------------------------------------------------------------------------
+
+/**
+ * Browsing and materialising have wildly different costs, and only one of them
+ * has a ceiling.
+ *
+ * Browsing costs one shader evaluation per *viewport* pixel. The grid could be
+ * a hundred gigapixels and the frame would take the same 1.7 ms, because the
+ * image is never allocated — measured flat from 1080p to 64K.
+ *
+ * Materialising is where the limits live. An address has to exist as bytes, and
+ * showing it needs an RGBA16 texture, and both have to fit:
+ *   - neither axis may exceed the GPU's maxTextureDimension2D (16384 in Chrome)
+ *   - a single ArrayBuffer tops out near 2 GB
+ *   - the tab's heap tops out at 4 GB, and it has to hold both at once
+ *
+ * Measured on this machine: 4K materialises in 0.6 s, 8K in 2.2 s, 16K UHD in
+ * 8.7 s using about 1 GB. Past roughly 250 megapixels there is no headroom left.
+ */
+export const LIMITS = {
+  /** Leave room under the ~2 GB single-ArrayBuffer cap. */
+  maxSingleAllocation: 1_800_000_000,
+  /** Address bytes plus texture bytes must both fit in the heap at once. */
+  maxCombined: 3_000_000_000,
+  /** Fallback when the backend does not report one. */
+  defaultMaxTextureDimension: 16384,
+} as const;
+
+export interface FormatCapacity {
+  /** False when this grid can be browsed but never resolved to an address. */
+  materialisable: boolean;
+  /** Why not, in words a person can act on. Empty when materialisable. */
+  reason: string;
+  addressBytes: number;
+  textureBytes: number;
+}
+
+export function formatCapacity(f: ArchiveFormat, maxTextureDimension: number): FormatCapacity {
+  const px = pixelCount(f);
+  const address = addressBytes(f);
+  const texture = px * 8; // RGBA16
+  const longestAxis = Math.max(f.resolution.width, f.resolution.height);
+
+  let reason = '';
+  if (px > MAX_PIXELS) {
+    reason = `A grid may not exceed ${MAX_PIXELS.toLocaleString()} pixels.`;
+  } else if (longestAxis > maxTextureDimension) {
+    reason = `Resolving needs a texture, and this GPU stops at ${maxTextureDimension.toLocaleString()} pixels on an axis. Browsing is unaffected.`;
+  } else if (address > LIMITS.maxSingleAllocation || texture > LIMITS.maxSingleAllocation) {
+    reason = 'Resolving would need a single allocation larger than a browser will grant. Browsing is unaffected.';
+  } else if (address + texture > LIMITS.maxCombined) {
+    reason = 'Resolving would exceed the memory this tab can hold. Browsing is unaffected.';
+  }
+
+  return { materialisable: reason === '', reason, addressBytes: address, textureBytes: texture };
+}

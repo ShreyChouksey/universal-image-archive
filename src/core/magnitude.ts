@@ -1,0 +1,122 @@
+/**
+ * Making a number too large to picture do something to a person.
+ *
+ * "119,849,434 digits" is an assertion. It does not land, because there is
+ * nothing in anyone's experience to hang it on. These are the anchors that
+ * convert it into things a body knows about: distance, time, paper.
+ *
+ * Every figure here is derived, never rounded to sound impressive, and the
+ * assumptions are stated so a reader can disagree with them.
+ */
+
+export interface Anchor {
+  label: string;
+  value: string;
+}
+
+const YEAR_SECONDS = 31_556_952; // Julian year
+
+function duration(seconds: number): string {
+  if (seconds < 1) return 'under a second';
+  if (seconds < 90) return `${Math.max(1, Math.round(seconds))} seconds`;
+  if (seconds < 5400) return `${(seconds / 60).toFixed(0)} minutes`;
+  if (seconds < 172800) return `${(seconds / 3600).toFixed(1)} hours`;
+  if (seconds < 2 * YEAR_SECONDS) return `${(seconds / 86400).toFixed(0)} days`;
+  const years = seconds / YEAR_SECONDS;
+  if (years < 1000) return `${years.toFixed(1)} years`;
+  if (years < 1e6) return `${Math.round(years).toLocaleString('en-US')} years`;
+  return `${years.toExponential(2)} years`;
+}
+
+function distance(metres: number): string {
+  if (metres < 1000) return `${metres.toFixed(0)} m`;
+  if (metres < 1e7) return `${Math.round(metres / 1000).toLocaleString('en-US')} km`;
+  return `${(metres / 1000).toExponential(2)} km`;
+}
+
+/**
+ * Anchors for the address itself — how big the written-out number is.
+ *
+ * Type metrics: 10 pt monospace sets at 6 pt to the character, which is
+ * 2.117 mm. A4 at 10 pt holds about 3,400 characters, and 500 sheets stand
+ * 50 mm high.
+ */
+export function addressAnchors(digitCount: number): Anchor[] {
+  const CHAR_MM = 2.117;
+  const CHARS_PER_PAGE = 3400;
+  const PAGE_MM = 50 / 500;
+
+  const lineMetres = (digitCount * CHAR_MM) / 1000;
+  const pages = digitCount / CHARS_PER_PAGE;
+  const stackMetres = (pages * PAGE_MM) / 1000;
+  const readSeconds = digitCount / 3; // three digits a second, aloud
+
+  return [
+    { label: 'Set in one line at 10 pt', value: distance(lineMetres) },
+    {
+      label: 'Printed on A4',
+      value: `${Math.round(pages).toLocaleString('en-US')} pages, stacked ${distance(stackMetres)} high`,
+    },
+    { label: 'Read aloud at three digits a second', value: duration(readSeconds) },
+  ];
+}
+
+/**
+ * Anchors for the archive — how much of it could ever be looked at.
+ *
+ * Assumes 10^80 atoms in the observable universe, each producing a billion
+ * distinct images every second since the Big Bang 13.8 billion years ago.
+ * The point of the calculation is that the assumptions do not matter: make
+ * them a thousand times more generous and the exponent barely moves.
+ */
+export function archiveAnchors(cardinalityExponent: number): Anchor[] {
+  const ATOMS_LOG10 = 80;
+  const PER_SECOND_LOG10 = 9;
+  const universeSeconds = 13.8e9 * YEAR_SECONDS;
+  const producedLog10 = ATOMS_LOG10 + PER_SECOND_LOG10 + Math.log10(universeSeconds);
+  const fractionExponent = Math.round(producedLog10 - cardinalityExponent);
+
+  return [
+    {
+      label: 'Every atom in the universe, a billion images a second, since the Big Bang',
+      value: `10${superscriptOf(Math.round(producedLog10))} images`,
+    },
+    {
+      label: 'Fraction of the archive that would cover',
+      value: `10${superscriptOf(fractionExponent)}`,
+    },
+  ];
+}
+
+const SUPER: Record<string, string> = {
+  '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
+  '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹', ',': '˒', '-': '⁻',
+};
+
+function superscriptOf(n: number): string {
+  return n
+    .toLocaleString('en-US')
+    .split('')
+    .map((c) => SUPER[c] ?? c)
+    .join('');
+}
+
+/**
+ * How long a full decimal expansion will take, from measured V8 behaviour.
+ *
+ * Two terms, because there are two costs. Rendering the address to a hex string
+ * for `BigInt()` is linear; the base conversion after it is subquadratic —
+ * timing it from 16 KiB to 4 MiB puts the exponent near 1.35, anchored at 1.9 s
+ * for 4 MiB. Shown before the work starts, because a minute of silence reads as
+ * a hang.
+ */
+export function decimalCostSeconds(addressBytes: number): number {
+  const ANCHOR_BYTES = 4 * 1024 * 1024;
+  const ANCHOR_SECONDS = 1.9;
+  const renderSeconds = addressBytes / 6e6;
+  return renderSeconds + ANCHOR_SECONDS * Math.pow(addressBytes / ANCHOR_BYTES, 1.35);
+}
+
+export function describeDecimalCost(addressBytes: number): string {
+  return duration(decimalCostSeconds(addressBytes));
+}

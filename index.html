@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <title>Universal Image Archive</title>
+    <meta
+      name="description"
+      content="Every possible 4K image at 48-bit colour depth, addressable and reachable."
+    />
+    <link rel="stylesheet" href="/src/styles/app.css" />
+  </head>
+  <body>
+    <div class="frame">
+      <header class="rail">
+        <div class="rail__mark">
+          <svg class="mark" viewBox="0 0 16 16" aria-hidden="true">
+            <rect x="0.5" y="0.5" width="15" height="15" fill="none" stroke="currentColor" />
+            <rect x="4" y="4" width="4" height="4" fill="currentColor" />
+            <rect x="8" y="8" width="4" height="4" fill="currentColor" />
+            <rect x="8" y="4" width="4" height="4" fill="currentColor" opacity="0.35" />
+            <rect x="4" y="8" width="4" height="4" fill="currentColor" opacity="0.6" />
+          </svg>
+          <h1 class="rail__title">Universal Image Archive</h1>
+        </div>
+
+        <div class="rail__pipeline" id="pipeline" title="Rendering pipeline">
+          <span class="pipeline__dot" data-state="pending"></span>
+          <span class="pipeline__text" id="pipelineText">initialising</span>
+        </div>
+
+        <nav class="rail__nav">
+          <button class="tab" type="button" data-drawer="search">Search</button>
+          <button class="tab" type="button" data-drawer="address">Address</button>
+          <button class="tab" type="button" data-drawer="plate">Plate</button>
+          <button class="tab" type="button" data-drawer="keys">Keys</button>
+          <button class="tab" type="button" data-drawer="about">About</button>
+        </nav>
+      </header>
+
+      <main class="stage" id="stage">
+        <canvas id="canvas" class="stage__canvas"></canvas>
+
+        <div class="stage__meta" id="stageMeta">
+          <span id="zoomReadout">fit</span>
+          <span class="dim" id="cursorReadout">—</span>
+        </div>
+
+        <div class="loupe" id="loupe" hidden>
+          <div class="loupe__swatch" id="loupeSwatch"></div>
+          <dl class="loupe__values">
+            <div><dt data-ch="r">R</dt><dd id="loupeR">—</dd></div>
+            <div><dt data-ch="g">G</dt><dd id="loupeG">—</dd></div>
+            <div><dt data-ch="b">B</dt><dd id="loupeB">—</dd></div>
+          </dl>
+          <p class="loupe__offset">
+            byte <span id="loupeOffset">—</span> of <span id="loupeTotal">—</span>
+          </p>
+        </div>
+
+        <div class="busy" id="busy" hidden>
+          <div class="busy__bar"><i id="busyFill"></i></div>
+          <p class="busy__label" id="busyLabel">working</p>
+        </div>
+      </main>
+
+      <section class="bench">
+        <div class="bench__entry">
+          <div class="entry__head">
+            <span class="label">Coordinate</span>
+            <button class="ghost" type="button" id="copySeed">Copy</button>
+          </div>
+          <input
+            class="entry__seed"
+            id="seedInput"
+            spellcheck="false"
+            autocomplete="off"
+            aria-label="Image coordinate, 128-bit hexadecimal"
+          />
+          <div class="entry__address">
+            <span class="label">Address</span>
+            <p class="address" id="addressReadout">
+              <span class="dim">not materialised —</span>
+              <button class="ghost" type="button" id="materialise">resolve</button>
+            </p>
+          </div>
+        </div>
+
+        <div class="bench__transport">
+          <div class="transport__row">
+            <button class="key" type="button" id="prevSeed" title="Previous coordinate (←)">←</button>
+            <button class="key key--wide" type="button" id="randomSeed" title="Random coordinate (R)">
+              Random
+            </button>
+            <button class="key" type="button" id="nextSeed" title="Next coordinate (→)">→</button>
+          </div>
+          <div class="transport__row">
+            <button class="key key--wide" type="button" id="play" title="Traverse (space)">
+              Traverse
+            </button>
+            <button class="key" type="button" id="stepDown" title="Address − 1 ([)">−1</button>
+            <button class="key" type="button" id="stepUp" title="Address + 1 (])">+1</button>
+          </div>
+          <p class="transport__note" id="transportNote">
+            ± 1 moves to the neighbouring image in the archive.
+          </p>
+        </div>
+
+        <div class="bench__format">
+          <div class="field">
+            <label class="label" for="geometry">Geometry</label>
+            <select id="geometry"></select>
+          </div>
+          <div class="field">
+            <label class="label" for="resolution">Grid</label>
+            <select id="resolution"></select>
+          </div>
+          <div class="field">
+            <label class="label" for="depth">Depth</label>
+            <select id="depth"></select>
+          </div>
+          <div class="scale" id="scale"></div>
+          <div class="bench__exports">
+            <button class="ghost" type="button" id="exportPng">Export PNG</button>
+            <button class="ghost" type="button" id="exportAddress">Export address</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <aside class="drawer" id="drawer" data-open="false">
+      <div class="drawer__head">
+        <h2 id="drawerTitle">Search</h2>
+        <button class="ghost" type="button" id="drawerClose" aria-label="Close">Close</button>
+      </div>
+
+      <section class="drawer__body" data-panel="search">
+        <p class="prose">
+          Every image is already here. Supplying one does not add it — it computes where it has
+          always been shelved.
+        </p>
+
+        <div class="dropzone" id="dropzone" tabindex="0" role="button">
+          <span class="dropzone__title">Drop an image</span>
+          <span class="dropzone__hint">or click to choose a file</span>
+          <input type="file" id="fileInput" accept="image/*" hidden />
+        </div>
+
+        <div class="field">
+          <label class="label" for="fit">Fit</label>
+          <select id="fit">
+            <option value="contain">Contain — whole image, letterboxed</option>
+            <option value="cover">Cover — fill the grid, crop the overflow</option>
+            <option value="stretch">Stretch — distort to the grid</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label class="label" for="flip">Orientation</label>
+          <select id="flip">
+            <option value="none">As supplied</option>
+            <option value="horizontal">Mirrored horizontally</option>
+            <option value="vertical">Mirrored vertically</option>
+            <option value="both">Rotated 180°</option>
+          </select>
+        </div>
+
+        <div class="field field--split">
+          <div>
+            <label class="label" for="fill">Surround</label>
+            <select id="fill">
+              <option value="#000000">Black</option>
+              <option value="archive">The archive itself</option>
+              <option value="#ffffff">White</option>
+              <option value="#808080">Mid grey</option>
+            </select>
+          </div>
+          <div>
+            <label class="label" for="frame">Margin</label>
+            <input type="number" id="frame" min="0" max="512" step="8" value="0" />
+          </div>
+        </div>
+
+        <div class="field" id="placementField" hidden>
+          <label class="label" for="placementFov">Lens</label>
+          <input type="number" id="placementFov" min="10" max="170" step="5" value="90" />
+          <p class="hint">
+            Horizontal field of view the supplied image is placed at, in degrees. Everything
+            outside it is surround.
+          </p>
+        </div>
+
+        <div class="field">
+          <label class="label" for="lowBits">Low bits</label>
+          <select id="lowBits">
+            <option value="replicate">Replicate — exact 8-bit promotion</option>
+            <option value="noise">Archive noise — a more typical address</option>
+          </select>
+          <p class="hint" id="lowBitsHint"></p>
+        </div>
+
+        <button class="primary" type="button" id="locate" disabled>Locate in archive</button>
+
+        <div class="verdict" id="verdict" hidden>
+          <p class="verdict__word" id="verdictWord">—</p>
+          <dl class="verdict__rows">
+            <div><dt>printed</dt><dd id="verdictPrinted">—</dd></div>
+            <div><dt>computed</dt><dd id="verdictComputed">—</dd></div>
+          </dl>
+          <p class="hint" id="verdictNote"></p>
+        </div>
+
+        <p class="hint" id="searchStatus"></p>
+      </section>
+
+      <section class="drawer__body" data-panel="address" hidden>
+        <div id="addressEmpty">
+          <p class="prose">
+            The address has not been worked out yet. It is 47 megabytes of number, so the archive
+            only computes one when you ask.
+          </p>
+          <button class="primary" type="button" id="addressResolve">Work out the address</button>
+        </div>
+
+        <div id="addressLoaded" hidden>
+          <p class="hint" id="addressWhere">—</p>
+
+          <div class="reader" id="reader">
+            <div class="reader__rows" id="readerRows"></div>
+          </div>
+
+          <input
+            class="reader__slider"
+            type="range"
+            id="readerSlider"
+            min="0"
+            max="1000000"
+            value="0"
+            aria-label="Position within the address"
+          />
+          <p class="hint" id="readerScale">—</p>
+
+          <div class="field field--split">
+            <div>
+              <label class="label" for="readerJump">Go to byte</label>
+              <input type="text" id="readerJump" inputmode="numeric" placeholder="0" />
+            </div>
+            <div>
+              <label class="label" for="readerJumpGo">&nbsp;</label>
+              <button class="ghost" type="button" id="readerJumpGo">Jump</button>
+            </div>
+          </div>
+
+          <h3>What is actually in it</h3>
+          <dl class="facts" id="entropyFacts"></dl>
+          <canvas class="histogram" id="histogram" width="320" height="64"></canvas>
+          <p class="hint">
+            Every one of the 256 possible byte values, counted across the whole address. A flat
+            field is what no structure looks like.
+          </p>
+
+          <h3>The size of it</h3>
+          <dl class="facts" id="magnitudeFacts"></dl>
+
+          <h3>Take it with you</h3>
+          <div class="bench__exports">
+            <button class="ghost" type="button" id="exportHex">Hexadecimal</button>
+            <button class="ghost" type="button" id="exportDecimal">Decimal</button>
+            <button class="ghost" type="button" id="exportAddress2">Binary</button>
+          </div>
+          <p class="hint" id="exportHint"></p>
+        </div>
+      </section>
+
+      <section class="drawer__body" data-panel="plate" hidden>
+        <p class="prose">
+          A plate is an image with fifteen digits printed on its face, and those digits are the
+          last fifteen digits of the number that image <em>is</em>. Not a caption — the picture
+          and the number are the same object, so the picture can be solved for.
+        </p>
+
+        <div class="field">
+          <label class="label" for="plateGround">Ground</label>
+          <input
+            class="entry__seed"
+            id="plateGround"
+            spellcheck="false"
+            autocomplete="off"
+            aria-label="Coordinate whose noise becomes the plate's ground"
+          />
+          <p class="hint">
+            <button class="ghost" type="button" id="plateUseCurrent">use the coordinate on the bench</button>
+          </p>
+        </div>
+
+        <div class="field">
+          <label class="label" for="plateStatement">Statement</label>
+          <input
+            class="entry__seed"
+            id="plateStatement"
+            spellcheck="false"
+            autocomplete="off"
+            inputmode="numeric"
+            maxlength="19"
+            aria-label="The fifteen digits to print and to make true"
+          />
+          <p class="hint">
+            Fifteen digits. A birthday, a phone number, anything — the archive will find an image
+            whose address ends with it.
+          </p>
+        </div>
+
+        <div class="field">
+          <label class="label" for="plateLayout">Layout</label>
+          <select id="plateLayout"></select>
+        </div>
+
+        <button class="primary" type="button" id="mintPlate">Construct plate</button>
+
+        <dl class="facts" id="plateFacts"></dl>
+
+        <p class="hint" id="plateStatus"></p>
+      </section>
+
+      <section class="drawer__body" data-panel="keys" hidden>
+        <table class="keys">
+          <tbody>
+            <tr><td><kbd>R</kbd></td><td>Jump to a random coordinate</td></tr>
+            <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Previous / next coordinate</td></tr>
+            <tr><td><kbd>[</kbd> <kbd>]</kbd></td><td>Neighbouring address, ∓1</td></tr>
+            <tr><td><kbd>Space</kbd></td><td>Start or stop traversing</td></tr>
+            <tr><td><kbd>F</kbd></td><td>Fit the grid, or face forward on a sphere</td></tr>
+            <tr><td><kbd>1</kbd></td><td>View at 1:1</td></tr>
+            <tr><td><kbd>G</kbd></td><td>Switch between plane and sphere</td></tr>
+            <tr><td><kbd>I</kbd></td><td>Toggle the pixel loupe</td></tr>
+            <tr><td><kbd>S</kbd></td><td>Open search</td></tr>
+            <tr><td><kbd>A</kbd></td><td>Read the address itself</td></tr>
+            <tr><td><kbd>P</kbd></td><td>Construct a plate</td></tr>
+            <tr><td><kbd>E</kbd></td><td>Export a PNG at full depth</td></tr>
+            <tr><td><kbd>Esc</kbd></td><td>Close this panel</td></tr>
+          </tbody>
+        </table>
+        <p class="prose">
+          Scroll to zoom, drag to pan. The loupe reports the exact channel values under the cursor
+          and the byte those values occupy in the address.
+        </p>
+      </section>
+
+      <section class="drawer__body" data-panel="about" hidden>
+        <p class="prose">
+          The archive holds every image that can be drawn on its grid: every photograph ever taken
+          and every one that never was, at every moment, from every angle — alongside an
+          overwhelming preponderance of noise. Nothing is stored. An address <em>is</em> its image,
+          so possession of the number is possession of the picture.
+        </p>
+
+        <h3>How an address works</h3>
+        <p class="prose">
+          Read the pixels row by row, each channel most-significant byte first, and treat the whole
+          run as one integer in base 256. Address zero is black; the largest address is white; every
+          image in between sits at exactly one number. The map is a bijection, which is what makes
+          the collection complete rather than merely large.
+        </p>
+
+        <h3>Why there are two lanes</h3>
+        <p class="prose">
+          At <span id="aboutFormat">4K and 48-bit</span> a full address runs to
+          <span id="aboutDigits">—</span> decimal digits. That cannot be put in a link, so a
+          <em>coordinate</em> — 128 bits, 32 hexadecimal characters — names an address through a
+          counter-based function. Every coordinate resolves to a real address. Not every address has
+          a coordinate: those are reached by supplying the image, which is what search does.
+        </p>
+
+        <h3>Why it is fast</h3>
+        <p class="prose">
+          The colour at a pixel depends only on that pixel's index, never on the ones before it. The
+          GPU can therefore evaluate all
+          <span id="aboutPixels">8,294,400</span> of them at once, and the CPU can read any byte of
+          an address without walking the preceding forty-seven megabytes.
+        </p>
+
+        <h3>Is every image random?</h3>
+        <p class="prose">
+          No — and the difference is the whole point. The <em>archive</em> contains every
+          photograph ever taken, pure black at address zero, pure white at the largest address,
+          and every diagram, painting and page of text that fits the grid. Nothing in it is
+          random; it is simply all of them.
+        </p>
+        <p class="prose">
+          What is random is the <em>coordinate lane</em>. Pressing Random draws from 2¹²⁸
+          coordinates, and every one of them resolves to noise — not because the generator
+          prefers noise, but because images that mean anything are vanishingly rare among all
+          images. You will never find a face this way. The Address panel measures the entropy of
+          whatever is loaded, so you can check that claim on the picture in front of you rather
+          than take it on faith.
+        </p>
+        <p class="prose">
+          There are no bad coordinates. The generator is counter-based, so it has no internal
+          state to fall into a rut: every coordinate is an independent key, including all zeros.
+          Tested across 5,000 random coordinates, 5 exceeded the p&lt;0.001 threshold for
+          non-uniformity — which is exactly the 5 that randomness predicts. Adjacent coordinates
+          differ in 64.3 of 128 bits on average, against an ideal of 64.
+        </p>
+
+        <h3>Plane and sphere</h3>
+        <p class="prose">
+          A plane grid is a window: the address is everything visible through a frame pointed one
+          way. A sphere grid is a standpoint — the same bytes, read as a full turn of longitude
+          against half a turn of latitude, so the address is not a picture you look at but a place
+          you look <em>from</em>. Drag to turn your head. Nothing about the bijection changes;
+          only the reading of the grid does, which is why geometry belongs to the format and
+          travels with the file.
+        </p>
+        <p class="prose">
+          It is a trade, not an upgrade, and the numbers are in the panel. Equirectangular
+          sampling crowds texels together near the poles, so only about 64% of a sphere's address
+          does distinct work — the rest is the projection's redundancy rather than the archive's
+          content. And a default sphere resolves about 3.7× coarser per degree of view than a flat
+          4K frame at the same field of view. Completeness is bought with resolution.
+        </p>
+
+        <h3>How large the grid can get</h3>
+        <p class="prose">
+          Browsing costs one evaluation per pixel <em>of your screen</em>, not of the image, so a
+          64K grid draws as quickly as a 1080p one — two billion pixels in about five
+          milliseconds. Resolving an address is the expensive direction: the bytes have to exist,
+          and the picture of them has to fit in a texture. That caps out near 16K, above which a
+          grid stays browsable but can never be held.
+        </p>
+
+        <h3>On colour depth</h3>
+        <p class="prose">
+          Channels are 16 bits, the deepest integer colour any mainstream still format carries, and
+          the surface is Display-P3 with extended range where the browser allows it. Most monitors
+          will show 8 or 10 of those bits. The other bits are not wasted: they are the difference
+          between 16.8 million possible colours and 281.5 trillion, and the archive is that much
+          larger for them.
+        </p>
+
+        <dl class="facts" id="facts"></dl>
+
+        <p class="prose dim">
+          After Borges, and after Jonathan Basile's Library of Babel and Babel Image Archives, which
+          did it first.
+        </p>
+      </section>
+    </aside>
+
+    <div class="toast" id="toast" hidden></div>
+
+    <noscript>
+      <p style="padding: 2rem; color: #f0eae0">
+        The archive is computed in your browser and needs JavaScript to do it.
+      </p>
+    </noscript>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

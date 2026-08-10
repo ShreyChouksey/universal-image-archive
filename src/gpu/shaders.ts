@@ -22,7 +22,7 @@ struct Uniforms {
   // The tail of the address after an offset. Everything before it is still a
   // pure function of the pixel index, which is what lets an address be walked
   // without ever building one.
-  tailPatch   : array<vec4<u32>, 12>,
+  tailPatch   : array<vec4<u32>, 128>,
 };
 
 @group(0) @binding(0) var<uniform> u : Uniforms;
@@ -251,7 +251,7 @@ uniform vec4 uView;      // xy = pan, z = zoom
 uniform uvec4 uSeed;
 uniform vec4 uParams;    // x = maxChannel, y = mode
 uniform uvec4 uPatchInfo; // x = first patched pixel, y = count
-uniform uvec4 uPatch[12];
+uniform uvec4 uPatch[128];
 uniform usampler2D uAddrTex;
 
 out vec4 fragColor;

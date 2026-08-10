@@ -36,11 +36,10 @@ import { sampleSeed } from './address';
 import type { Seed } from './philox';
 
 /**
- * Pixels the patch covers. Twelve is 72 bytes at 48-bit and 36 at 24-bit —
- * against the 7 bytes a maximum offset can touch, that is ten orders of
- * magnitude of headroom for the carry.
+ * Pixels the patch covers. 128 pixels is 768 bytes at 48-bit and 384 at 24-bit —
+ * providing vast headroom for carry propagation through black-tailed letterboxed images.
  */
-export const PATCH_PIXELS = 12;
+export const PATCH_PIXELS = 128;
 
 export interface TailPatch {
   /** Index of the first pixel the patch replaces. */

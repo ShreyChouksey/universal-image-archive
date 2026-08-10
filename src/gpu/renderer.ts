@@ -87,8 +87,8 @@ export interface Renderer {
   dispose(): void;
 }
 
-// 64 for the original block, 16 for patchInfo, 192 for twelve patched pixels.
-const UNIFORM_BYTES = 272;
+// 80 for head block + patchInfo + alignment, PATCH_PIXELS * 16 for patched pixels array.
+const UNIFORM_BYTES = 80 + PATCH_PIXELS * 16;
 export const PROBE = 8;
 
 /**

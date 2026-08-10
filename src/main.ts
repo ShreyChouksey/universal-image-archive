@@ -1644,15 +1644,19 @@ async function boot(): Promise<void> {
     );
   });
 
+  function stepCoordinate(delta: number): void {
+    setSeed(seedAdd(state.seed, delta));
+  }
+
   // Transport
   $('randomSeed').addEventListener('click', () => setSeed(randomSeed()));
-  $('nextSeed').addEventListener('click', () => walk(stepSize()));
-  $('prevSeed').addEventListener('click', () => walk(-stepSize()));
+  $('nextSeed').addEventListener('click', () => stepCoordinate(stepSize()));
+  $('prevSeed').addEventListener('click', () => stepCoordinate(-stepSize()));
   $('stepSize').addEventListener('change', updateLaneUI);
   $('stepSize').addEventListener('input', updateLaneUI);
   $('play').addEventListener('click', () => setPlaying(!state.playing));
-  $('stepUp').addEventListener('click', () => void stepAddress(stepSize()));
-  $('stepDown').addEventListener('click', () => void stepAddress(-stepSize()));
+  $('stepUp').addEventListener('click', () => walk(stepSize()));
+  $('stepDown').addEventListener('click', () => walk(-stepSize()));
 
   // Exports
   $('exportPng').addEventListener('click', () => void exportPng());
@@ -1776,10 +1780,10 @@ async function boot(): Promise<void> {
 
     switch (e.key.toLowerCase()) {
       case 'r': setSeed(randomSeed()); break;
-      case 'arrowright': walk(stepSize()); break;
-      case 'arrowleft': walk(-stepSize()); break;
-      case ']': void stepAddress(stepSize()); break;
-      case '[': void stepAddress(-stepSize()); break;
+      case 'arrowright': stepCoordinate(stepSize()); break;
+      case 'arrowleft': stepCoordinate(-stepSize()); break;
+      case ']': walk(stepSize()); break;
+      case '[': walk(-stepSize()); break;
       case ' ': e.preventDefault(); setPlaying(!state.playing); break;
       case 'f': stage.fit(); break;
       case '1': stage.actualSize(); break;

@@ -17,6 +17,8 @@ import {
   type ArchiveFormat,
   type FormatCapacity,
   type Geometry,
+  type Resolution,
+  customResolution,
   defaultResolutionFor,
   depthById,
   formatCapacity,
@@ -221,10 +223,19 @@ const geometryOf = (): Geometry => state.format.resolution.geometry;
 
 function renderResolutionOptions(): void {
   const sel = $<HTMLSelectElement>('resolution');
-  sel.innerHTML = resolutionsFor(geometryOf())
+  const current = state.format.resolution;
+  const listed = resolutionsFor(geometryOf());
+  const options = listed
     .map((r) => `<option value="${r.id}">${r.label} — ${r.note}</option>`)
     .join('');
-  sel.value = state.format.resolution.id;
+  // A custom grid is real while it is in use, so the select must be able to
+  // say so rather than displaying the wrong entry.
+  const custom =
+    current.geometry === geometryOf() && !listed.some((r) => r.id === current.id)
+      ? `<option value="${current.id}">${current.label} — ${current.note}</option>`
+      : '';
+  sel.innerHTML = custom + options;
+  sel.value = current.id;
 }
 
 function setGeometry(geometry: Geometry): void {
@@ -466,6 +477,7 @@ function readUrl(): void {
 
 function applyFormat(): void {
   reader = null;
+  renderPlacementChoice();
   stage.setFormat(state.format);
   renderScale();
   state.held = { kind: 'none' };
@@ -504,10 +516,77 @@ function updateLowBitsHint(): void {
 // ---------------------------------------------------------------------------
 
 let pendingFile: File | null = null;
+/** Dimensions of the staged picture, read once when it is chosen. */
+let pendingDims: { width: number; height: number } | null = null;
+
+/**
+ * Where a picture whose dimensions match no listed grid can live.
+ *
+ * 'own'      — a grid cut to its exact dimensions: the complete archive of
+ *              every image that size, and this picture's true address in it.
+ *              No resampling, nothing lost.
+ * 'embed'    — the smallest listed grid it fits inside, surround filling the
+ *              rest, exact pixels preserved at the centre.
+ * 'resample' — scaled onto the grid currently on the bench.
+ */
+type Placement = 'own' | 'embed' | 'resample';
+
+function smallestEmbedding(width: number, height: number): Resolution | null {
+  const maxDim = renderer?.capabilities.maxTextureDimension ?? LIMITS.defaultMaxTextureDimension;
+  return (
+    resolutionsFor('plane')
+      .filter((r) => r.width >= width && r.height >= height)
+      .filter((r) => formatCapacity({ resolution: r, depth: state.format.depth }, maxDim).materialisable)
+      .sort((a, b) => a.width * a.height - b.width * b.height)[0] ?? null
+  );
+}
+
+/** Offers the placement choice exactly when the dimensions call for one. */
+function renderPlacementChoice(): void {
+  const field = $('placementChoiceField');
+  if (!pendingDims || geometryOf() === 'sphere') {
+    field.hidden = true;
+    return;
+  }
+  const { width, height } = pendingDims;
+  const listed = RESOLUTIONS.find((r) => r.geometry === 'plane' && r.width === width && r.height === height);
+  const current = state.format.resolution;
+  if (listed || (current.width === width && current.height === height)) {
+    field.hidden = true;
+    return;
+  }
+
+  const maxDim = renderer?.capabilities.maxTextureDimension ?? LIMITS.defaultMaxTextureDimension;
+  const own = customResolution(width, height);
+  const ownFits = formatCapacity({ resolution: own, depth: state.format.depth }, maxDim).materialisable;
+  const embed = smallestEmbedding(width, height);
+
+  const options: Array<[Placement, string]> = [];
+  if (ownFits) options.push(['own', `Its own archive — every ${width} × ${height} image, exactly`]);
+  if (embed) options.push(['embed', `Embed in ${embed.label} — smallest grid that holds it`]);
+  options.push(['resample', `Resample to the grid on the bench (${current.label})`]);
+
+  const select = $<HTMLSelectElement>('placementChoice');
+  select.innerHTML = options.map(([v, label]) => `<option value="${v}">${label}</option>`).join('');
+  $('placementChoiceHint').textContent = ownFits
+    ? 'Its own archive keeps every pixel and gives the picture its exact address — the numbers below change to its size.'
+    : 'This picture is too large for a grid of its own on this GPU.';
+  field.hidden = false;
+}
 
 /** Holds a file ready for `locate()` and reflects it in the dropzone. */
 function stageForSearch(file: File): void {
   pendingFile = file;
+  pendingDims = null;
+  void createImageBitmap(file)
+    .then((bitmap) => {
+      pendingDims = { width: bitmap.width, height: bitmap.height };
+      bitmap.close();
+      renderPlacementChoice();
+    })
+    .catch(() => {
+      $('placementChoiceField').hidden = true;
+    });
   const dropzone = $('dropzone');
   dropzone.dataset.loaded = 'true';
   dropzone.querySelector('.dropzone__title')!.textContent = file.name;
@@ -757,7 +836,7 @@ function resolvableFormats(): ArchiveFormat[] {
   return out;
 }
 
-/** Applies a format a file brought with it, syncing every control. */
+/** Applies a format a file brought with it, syncing every control and the URL. */
 function adoptImportedFormat(format: ArchiveFormat): void {
   state.format = format;
   $<HTMLSelectElement>('geometry').value = format.resolution.geometry;
@@ -767,6 +846,9 @@ function adoptImportedFormat(format: ArchiveFormat): void {
   stage.setFormat(format);
   renderScale();
   updateSearchControls();
+  // Custom grids ride the r= parameter (c900x1600), so a bespoke archive is as
+  // linkable as a listed one.
+  syncUrl();
 }
 
 /**
@@ -784,7 +866,10 @@ async function importAddressText(file: File): Promise<void> {
       // Unambiguously hexadecimal (contains a-f): bytes, directly.
       if (text.length % 2) throw new Error('That hex file has an odd number of digits.');
       const byteCount = text.length / 2;
-      const format = resolvableFormats().find(
+      // The bench's own format first: a custom archive's hex has no listed
+      // grid to infer, but the bench still set to it names it exactly.
+      const candidates = [state.format, ...resolvableFormats()];
+      const format = candidates.find(
         (f) => f.resolution.width * f.resolution.height * f.depth.bytesPerPixel === byteCount,
       );
       if (!format) {
@@ -846,18 +931,24 @@ async function openAddressFile(file: File): Promise<void> {
     const unpacked = unpackAddressFile(await file.arrayBuffer());
     if (!unpacked) throw new Error('That file is not a Universal Image Archive address.');
 
-    const resolution = RESOLUTIONS.find(
-      (r) =>
-        r.width === unpacked.width &&
-        r.height === unpacked.height &&
-        r.geometry === unpacked.geometry,
-    );
+    // A listed grid if one matches; otherwise the file carries its own — the
+    // same custom-archive idea, arriving by container instead of by picture.
+    const resolution =
+      RESOLUTIONS.find(
+        (r) =>
+          r.width === unpacked.width &&
+          r.height === unpacked.height &&
+          r.geometry === unpacked.geometry,
+      ) ?? (unpacked.geometry === 'plane' ? customResolution(unpacked.width, unpacked.height) : null);
     const depth = DEPTHS.find((d) => d.bpc === unpacked.bpc);
     if (!resolution || !depth) {
       throw new Error(
-        `That address is a ${unpacked.geometry} of ${unpacked.width} × ${unpacked.height} at ${unpacked.bpc} bits, which this archive does not carry.`,
+        `That address is a ${unpacked.geometry} of ${unpacked.width} × ${unpacked.height} at ${unpacked.bpc} bits, which this archive cannot carry.`,
       );
     }
+    const maxDim = renderer?.capabilities.maxTextureDimension ?? LIMITS.defaultMaxTextureDimension;
+    const fit = formatCapacity({ resolution, depth }, maxDim);
+    if (!fit.materialisable) throw new Error(fit.reason);
 
     adoptImportedFormat({ resolution, depth });
 
@@ -881,6 +972,25 @@ async function openAddressFile(file: File): Promise<void> {
 
 async function locate(): Promise<void> {
   if (!pendingFile) return;
+
+  // The placement decision, made before any pixels move.
+  if (!$('placementChoiceField').hidden && pendingDims) {
+    const choice = $<HTMLSelectElement>('placementChoice').value as Placement;
+    if (choice === 'own') {
+      adoptImportedFormat({
+        resolution: customResolution(pendingDims.width, pendingDims.height),
+        depth: state.format.depth,
+      });
+    } else if (choice === 'embed') {
+      const embed = smallestEmbedding(pendingDims.width, pendingDims.height);
+      if (embed) {
+        adoptImportedFormat({ resolution: embed, depth: state.format.depth });
+        $<HTMLSelectElement>('fit').value = 'contain';
+      }
+    }
+    // 'resample' is the existing behaviour: the bench grid stands.
+  }
+
   busy(true, 'Reading image', 0.05);
   try {
     const bitmap = await createImageBitmap(pendingFile);

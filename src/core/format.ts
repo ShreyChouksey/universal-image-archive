@@ -124,9 +124,40 @@ export function defaultResolutionFor(geometry: Geometry): Resolution {
   return geometry === 'sphere' ? DEFAULT_SPHERE : DEFAULT_RESOLUTION;
 }
 
+/**
+ * A grid cut to measure. The archive concept is parameterised by its grid, so a
+ * picture whose dimensions match nothing listed can simply carry its own — the
+ * complete archive of every image at exactly those dimensions. All the
+ * arithmetic downstream (cardinality, capacity, addresses, exports) is already
+ * generic over width and height; this only gives such a grid a name.
+ */
+export function customResolution(width: number, height: number): Resolution {
+  return {
+    id: `c${width}x${height}`,
+    label: 'Custom',
+    note: `${width} × ${height}`,
+    width,
+    height,
+    geometry: 'plane',
+  };
+}
+
+const CUSTOM_ID = /^c(\d{1,5})x(\d{1,5})$/;
+
 export function resolutionById(id: string, geometry?: Geometry): Resolution {
   const found = RESOLUTIONS.find((r) => r.id === id);
   if (found && (!geometry || found.geometry === geometry)) return found;
+
+  // Custom grids survive the URL round trip: c900x1600 names the archive of
+  // every 900 x 1600 image.
+  const custom = CUSTOM_ID.exec(id);
+  if (custom && (!geometry || geometry === 'plane')) {
+    const width = Number(custom[1]);
+    const height = Number(custom[2]);
+    if (width > 0 && height > 0 && width * height <= MAX_PIXELS) {
+      return customResolution(width, height);
+    }
+  }
   return defaultResolutionFor(geometry ?? found?.geometry ?? 'plane');
 }
 

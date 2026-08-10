@@ -1196,3 +1196,65 @@ test('the pitch convention is genuinely positive-up in the projection', () => {
     assert.equal(centre.y, ty, `texel ${tx},${ty} y`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Custom grids — every picture can carry its own archive
+// ---------------------------------------------------------------------------
+
+test('a custom grid round-trips through its id and computes real numbers', async () => {
+  const { customResolution } = await import('../src/core/format.ts');
+  const r = customResolution(900, 1600);
+  assert.equal(r.id, 'c900x1600');
+  assert.equal(r.geometry, 'plane');
+
+  const back = resolutionById('c900x1600', 'plane');
+  assert.equal(back.width, 900);
+  assert.equal(back.height, 1600);
+
+  // The bespoke archive's arithmetic, checked against the definitions.
+  const s = archiveScale({ resolution: r, depth: depth(16) });
+  assert.equal(s.pixels, 1_440_000);
+  assert.equal(s.bytes, 8_640_000);
+  assert.equal(s.bits, 69_120_000);
+  assert.equal(s.cardinalityExponent, Math.floor(69_120_000 * Math.log10(2)));
+  assert.ok(formatCapacity({ resolution: r, depth: depth(16) }, 16384).materialisable);
+});
+
+test('custom ids that cannot be a grid fall back rather than crash', () => {
+  for (const id of ['c0x100', 'cx', 'c99999999x99999999', 'c-5x10']) {
+    const r = resolutionById(id, 'plane');
+    assert.equal(r.geometry, 'plane');
+    assert.ok(
+      formatCapacity({ resolution: r, depth: depth(16) }, 16384).materialisable,
+      `${id} must land on a resolvable fallback`,
+    );
+  }
+  // A custom id under sphere geometry is refused — customs are planes.
+  assert.equal(resolutionById('c900x1600', 'sphere').geometry, 'sphere');
+});
+
+test('a custom-grid address survives the .uia container', async () => {
+  const { customResolution } = await import('../src/core/format.ts');
+  const format: ArchiveFormat = { resolution: customResolution(30, 20), depth: depth(16) };
+  const payload = Uint8Array.from({ length: addressBytes(format) }, () => (Math.random() * 256) | 0);
+  const un = unpackAddressFile(await packAddressFile(format, payload).arrayBuffer())!;
+  assert.ok(un, 'custom dims must unpack');
+  assert.equal(un.width, 30);
+  assert.equal(un.height, 20);
+  assert.deepEqual(un.bytes, payload);
+});
+
+test('generator invariants hold on a custom grid too', () => {
+  const { } = {};
+  const format: ArchiveFormat = {
+    resolution: { id: 'c9x16', label: 'Custom', note: '', width: 9, height: 16, geometry: 'plane' },
+    depth: depth(16),
+  };
+  const seed = seedOf(7, 7, 7, 7);
+  const bytes = new Uint8Array(addressBytes(format));
+  materialiseSeed(format, seed, bytes);
+  for (let i = 0; i < 9 * 16; i++) {
+    const s = sampleSeed(format, seed, i);
+    assert.equal((bytes[i * 6] << 8) | bytes[i * 6 + 1], s.r);
+  }
+});

@@ -72,7 +72,10 @@
       <section class="bench">
         <div class="bench__entry">
           <div class="entry__head">
-            <span class="label">Coordinate</span>
+            <div class="label-group">
+              <span class="label">Coordinate</span>
+              <span class="lane-badge" id="laneBadge">SEEDED</span>
+            </div>
             <button class="ghost" type="button" id="copySeed">Copy</button>
           </div>
           <input
@@ -86,11 +89,14 @@
             Names a lane of the archive — not the picture on the stage, which has no coordinate.
           </p>
           <div class="entry__address">
-            <span class="label">Address</span>
-            <p class="address" id="addressReadout">
+            <div class="entry__head">
+              <span class="label">Address</span>
+              <button class="ghost" type="button" id="openAddressInspector">Inspect Panel</button>
+            </div>
+            <div class="address" id="addressReadout">
               <span class="dim">not materialised —</span>
               <button class="ghost" type="button" id="materialise">resolve</button>
-            </p>
+            </div>
           </div>
         </div>
 

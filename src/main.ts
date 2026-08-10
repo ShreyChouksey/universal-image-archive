@@ -353,6 +353,20 @@ function updateLaneUI(): void {
   const stale = !coordinateNamesStage();
   $<HTMLInputElement>('seedInput').dataset.stale = String(stale);
   $('coordNote').hidden = !stale;
+
+  const badge = document.getElementById('laneBadge');
+  if (badge) {
+    if (state.mode === 'address') {
+      badge.textContent = 'LOCATED ADDRESS';
+      badge.className = 'lane-badge lane-badge--address';
+      badge.title = 'This image is at its exact base-256 address in the archive (it has no seed coordinate)';
+    } else {
+      badge.textContent = 'SEEDED COORDINATE';
+      badge.className = 'lane-badge lane-badge--seed';
+      badge.title = 'A 128-bit coordinate that expands via Philox noise into a 4K frame';
+    }
+  }
+
   const step = stepSize();
   const n = step.toLocaleString('en-US');
   $('transportNote').textContent =
@@ -405,18 +419,40 @@ function renderSeedLocation(): void {
 
   const offsetNote =
     state.offset === 0
-      ? '<span class="dim">on the coordinate</span>'
-      : `<span class="dim">${state.offset > 0 ? '+' : '−'}${Math.abs(state.offset).toLocaleString('en-US')} from the coordinate</span>`;
+      ? 'on coordinate'
+      : `${state.offset > 0 ? '+' : '−'}${Math.abs(state.offset).toLocaleString('en-US')} from coordinate`;
 
-  $('addressReadout').innerHTML =
-    `<b>${head}</b> … <b>${tail}</b><br /><span class="dim">${group(scale.cardinalityDigits)} digits · ${offsetNote}` +
-    (cap.materialisable
-      ? ' · <button class="ghost" type="button" id="materialise">resolve</button></span>'
-      : '</span>');
+  const formattedDigits = group(scale.cardinalityDigits);
+  const scaleHint = scale.cardinalityDigits > 1e6 ? ` (~${(scale.cardinalityDigits / 1e6).toFixed(2)}M digits)` : '';
+
+  let html =
+    `<div class="address-meta">` +
+    `<span class="hex-chip" data-copy="${head}" title="Click to copy Head Hex">${head}</span> ` +
+    `<span class="dim">…</span> ` +
+    `<span class="hex-chip" data-copy="${tail}" title="Click to copy Tail Hex">${tail}</span></div>` +
+    `<div class="address-meta"><span class="dim">${formattedDigits} digits${scaleHint} · ${offsetNote}`;
 
   if (cap.materialisable) {
-    $('materialise').addEventListener('click', () => void resolveAddress());
+    html += ' · <button class="ghost" type="button" id="materialise">resolve</button></span></div>';
+  } else {
+    html += '</span></div>';
   }
+
+  if (state.held.kind !== 'none') {
+    html +=
+      `<div class="address-meta"><span class="dim">still loaded: ${escapeHtml(heldLabel())} —</span> ` +
+      '<button class="ghost" type="button" id="heldReturn">return to it</button> ' +
+      '<button class="ghost" type="button" id="heldDiscard">discard</button></div>';
+  }
+
+  $('addressReadout').innerHTML = html;
+
+  if (cap.materialisable) {
+    document.getElementById('materialise')?.addEventListener('click', () => void resolveAddress());
+  }
+  document.getElementById('heldReturn')?.addEventListener('click', () => void returnToHeld());
+  document.getElementById('heldDiscard')?.addEventListener('click', () => void discardHeld());
+
   for (const id of ['stepUp', 'stepDown'] as const) {
     $<HTMLButtonElement>(id).disabled = false;
   }
@@ -424,15 +460,6 @@ function renderSeedLocation(): void {
     const el = $<HTMLButtonElement>(id);
     el.disabled = !cap.materialisable;
     el.title = cap.materialisable ? '' : cap.reason;
-  }
-  // A parked image is still parked; keep its way back visible.
-  if (state.held.kind !== 'none') {
-    $('addressReadout').innerHTML +=
-      `<br /><span class="dim">still loaded: ${escapeHtml(heldLabel())} —</span> ` +
-      '<button class="ghost" type="button" id="heldReturn">return to it</button> ' +
-      '<button class="ghost" type="button" id="heldDiscard">discard</button>';
-    document.getElementById('heldReturn')?.addEventListener('click', () => void returnToHeld());
-    document.getElementById('heldDiscard')?.addEventListener('click', () => void discardHeld());
   }
 }
 
@@ -453,19 +480,28 @@ function renderAddressLocation(): void {
 
   const bpp = state.format.depth.bytesPerPixel;
   const count = Math.floor(base.tail.length / bpp) * bpp;
-  const tail = base.tail.slice(0, count);
+  const tailBytes = base.tail.slice(0, count);
   try {
-    applyOffsetToTail(tail, state.offset);
+    applyOffsetToTail(tailBytes, state.offset);
   } catch {
     return;
   }
   const m = DECIMAL_MODULUS;
   const residue = (((base.residue + (state.offset % m)) % m) + m) % m;
+  const tailHex = hex(tailBytes.subarray(Math.max(0, tailBytes.length - 16)));
+  const headHex = hex(base.head);
+  const tailDec = String(residue).padStart(15, '0').slice(-12);
+  const formattedDigits = group(base.digits);
+  const scaleHint = base.digits > 1e6 ? ` (~${(base.digits / 1e6).toFixed(2)}M digits)` : '';
+  const offsetNote = `${state.offset > 0 ? '+' : '−'}${Math.abs(state.offset).toLocaleString('en-US')} from base`;
 
   $('addressReadout').innerHTML =
-    `<b>${hex(base.head)}</b> … <b>${hex(tail.subarray(Math.max(0, tail.length - 16)))}</b>` +
-    `<br /><span class="dim">${group(base.digits)} digits · ends …${String(residue).padStart(15, '0').slice(-12)}` +
-    ` · ${state.offset > 0 ? '+' : '−'}${Math.abs(state.offset).toLocaleString('en-US')} from the loaded address</span>`;
+    `<div class="address-meta">` +
+    `<span class="hex-chip" data-copy="${headHex}" title="Click to copy Head Hex">${headHex}</span> ` +
+    `<span class="dim">…</span> ` +
+    `<span class="hex-chip" data-copy="${tailHex}" title="Click to copy Tail Hex">${tailHex}</span></div>` +
+    `<div class="address-meta"><span class="dim">${formattedDigits} digits${scaleHint} · ends ` +
+    `<span class="hex-chip" data-copy="${tailDec}" title="Click to copy Decimal Residue">…${tailDec}</span> · ${offsetNote}</span></div>`;
 }
 
 function renderAddressPlaceholder(): void {
@@ -505,9 +541,17 @@ async function renderAddressReadout(): Promise<void> {
   if (!$('addressLoaded').hidden || $('drawerTitle').textContent === TITLES.address) {
     void renderAddressPanel();
   }
-  $('addressReadout').innerHTML = `<b>${r.head}</b> … <b>${r.tail}</b><br /><span class="dim">${group(
-    r.digitCount,
-  )} digits · ends …${r.trailingDecimal}</span>`;
+  const formattedDigits = group(r.digitCount);
+  const scaleHint = r.digitCount > 1e6 ? ` (~${(r.digitCount / 1e6).toFixed(2)}M digits)` : '';
+
+  $('addressReadout').innerHTML =
+    `<div class="address-meta">` +
+    `<span class="hex-chip" data-copy="${r.head}" title="Click to copy Head Hex">${r.head}</span> ` +
+    `<span class="dim">…</span> ` +
+    `<span class="hex-chip" data-copy="${r.tail}" title="Click to copy Tail Hex">${r.tail}</span></div>` +
+    `<div class="address-meta"><span class="dim">${formattedDigits} digits${scaleHint} · ends ` +
+    `<span class="hex-chip" data-copy="${r.trailingDecimal}" title="Click to copy Decimal Residue">…${r.trailingDecimal}</span></span></div>`;
+
   $<HTMLButtonElement>('stepUp').disabled = false;
   $<HTMLButtonElement>('stepDown').disabled = false;
 }
@@ -1619,6 +1663,22 @@ async function boot(): Promise<void> {
   $('addressResolve').addEventListener('click', async () => {
     await resolveAddress();
     await renderAddressPanel();
+  });
+
+  document.getElementById('openAddressInspector')?.addEventListener('click', () => {
+    openDrawer('address');
+    void renderAddressPanel();
+  });
+
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement | null;
+    const chip = target?.closest('.hex-chip') as HTMLElement | null;
+    if (chip && chip.dataset.copy) {
+      const val = chip.dataset.copy;
+      void navigator.clipboard.writeText(val).then(() => {
+        toast(`Copied ${val.length > 16 ? val.slice(0, 8) + '…' : val}`);
+      });
+    }
   });
 
   // Drawer

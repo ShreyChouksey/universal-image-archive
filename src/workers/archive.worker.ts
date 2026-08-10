@@ -58,6 +58,7 @@ export type Request =
       seed: number[];
     }
   | { id: number; kind: 'adopt'; format: ArchiveFormat; bytes: ArrayBuffer }
+  | { id: number; kind: 'importDecimal'; text: string; formats: ArchiveFormat[] }
   | { id: number; kind: 'step'; delta: number }
   | { id: number; kind: 'slice'; from: number; count: number }
   | { id: number; kind: 'entropy' }
@@ -82,7 +83,8 @@ export type Response =
   | { id: number; kind: 'plate'; report: PlateReport }
   | { id: number; kind: 'verdict'; verdict: PlateVerdict }
   | { id: number; kind: 'slice'; from: number; bytes: Uint8Array }
-  | { id: number; kind: 'entropy'; report: EntropyReport };
+  | { id: number; kind: 'entropy'; report: EntropyReport }
+  | { id: number; kind: 'imported'; format: ArchiveFormat };
 
 export interface EntropyReport {
   /** Shannon entropy of the whole address, bits per byte. 8 is the ceiling. */
@@ -449,6 +451,54 @@ self.onmessage = async (event: MessageEvent<Request>) => {
           blob: new Blob([decimal], { type: 'text/plain' }),
           filename: `uia-${current.format.resolution.width}x${current.format.resolution.height}-address.dec.txt`,
         });
+        break;
+      }
+
+      case 'importDecimal': {
+        // The number IS the image, so typing it back in must return the image.
+        // Parsing a hundred-million-digit integer takes tens of seconds, which
+        // is why it happens here and not on the thread that draws frames.
+        const digits = req.text.replace(/[\s,._']/g, '');
+        if (!/^\d+$/.test(digits)) {
+          throw new Error('That file does not read as a decimal number.');
+        }
+        post({ id: req.id, kind: 'progress', label: 'Reading the number', fraction: 0.1 });
+        const value = BigInt(digits);
+
+        // The number alone does not say which grid it was written for — leading
+        // zeros vanish in decimal. Take the smallest offered format the value
+        // fits, which recovers every export whose image was not mostly black.
+        post({ id: req.id, kind: 'progress', label: 'Finding the grid it fits', fraction: 0.45 });
+        const fit = req.formats
+          .slice()
+          .sort(
+            (a, b) =>
+              a.resolution.width * a.resolution.height * a.depth.bytesPerPixel -
+              b.resolution.width * b.resolution.height * b.depth.bytesPerPixel,
+          )
+          .find((f) => {
+            const bytes =
+              f.resolution.width * f.resolution.height * f.depth.bytesPerPixel;
+            return bytes <= BIGINT_MAX_BYTES && value >> BigInt(bytes * 8) === 0n;
+          });
+        if (!fit) {
+          throw new Error(
+            'That number is larger than any grid this archive can resolve, or needs one past the 128 MiB integer ceiling.',
+          );
+        }
+
+        post({ id: req.id, kind: 'progress', label: 'Writing the bytes', fraction: 0.7 });
+        const total =
+          fit.resolution.width * fit.resolution.height * fit.depth.bytesPerPixel;
+        let hex = value.toString(16);
+        if (hex.length % 2) hex = '0' + hex;
+        const out = new Uint8Array(total); // leading zeros restored by the pad
+        const start = total - hex.length / 2;
+        for (let i = 0; i < hex.length / 2; i++) {
+          out[start + i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+        }
+        current = { format: fit, bytes: out };
+        post({ id: req.id, kind: 'imported', format: fit });
         break;
       }
 

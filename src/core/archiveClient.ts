@@ -85,6 +85,17 @@ export class ArchiveClient {
     await this.#send({ kind: 'adopt', format, bytes }, [bytes]);
   }
 
+  /** Parses a decimal address off the main thread and loads it. */
+  async importDecimal(
+    text: string,
+    formats: ArchiveFormat[],
+    onProgress?: (p: Progress) => void,
+  ): Promise<ArchiveFormat> {
+    const res = await this.#send({ kind: 'importDecimal', text, formats }, [], onProgress);
+    if (res.kind !== 'imported') throw new Error('unexpected response');
+    return res.format;
+  }
+
   /** Mints a plate and leaves it loaded as the current address. */
   async plate(
     format: ArchiveFormat,

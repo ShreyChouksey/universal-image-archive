@@ -42,6 +42,10 @@
       <main class="stage" id="stage">
         <canvas id="canvas" class="stage__canvas"></canvas>
 
+        <button class="parked" id="parkedChip" type="button" hidden>
+          <i></i><span id="parkedLabel">image still loaded</span><b>return</b>
+        </button>
+
         <div class="stage__meta" id="stageMeta">
           <span id="zoomReadout">fit</span>
           <span class="dim" id="cursorReadout">—</span>
@@ -146,8 +150,8 @@
 
         <div class="dropzone" id="dropzone" tabindex="0" role="button">
           <span class="dropzone__title">Drop an image</span>
-          <span class="dropzone__hint">or click to choose a file</span>
-          <input type="file" id="fileInput" accept="image/*" hidden />
+          <span class="dropzone__hint">or click to choose — a picture, or an exported address (.uia, hex or decimal .txt)</span>
+          <input type="file" id="fileInput" accept="image/*,.uia,.txt,text/plain" hidden />
         </div>
 
         <div class="field">

@@ -248,8 +248,17 @@ function updateLaneUI(): void {
   $('coordNote').hidden = !stale;
   $('transportNote').textContent =
     state.mode === 'address'
-      ? 'This picture sits at an address, not a coordinate. ← → travel the coordinate lane; the picture stays loaded, with a way back beside the address.'
+      ? 'This picture sits at an address, not a coordinate. ← → travel the coordinate lane; the picture stays loaded, with a way back on the stage.'
       : '± 1 moves to the neighbouring image in the archive.';
+
+  // The stage-level way back: shown exactly when a loaded image is parked out
+  // of view behind the coordinate lane.
+  const parked = state.mode === 'seed' && state.held.kind === 'foreign';
+  const chip = $('parkedChip');
+  chip.hidden = !parked;
+  if (parked && state.held.kind === 'foreign') {
+    $('parkedLabel').textContent = `${state.held.label} is still loaded —`;
+  }
 }
 
 function renderSeed(): void {
@@ -306,6 +315,7 @@ async function renderAddressReadout(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 function setSeed(seed: Seed, { pushUrl = true } = {}): void {
+  const wasAddressMode = state.mode === 'address';
   state.seed = seed;
   state.mode = 'seed';
   addressTexels = null;
@@ -315,6 +325,7 @@ function setSeed(seed: Seed, { pushUrl = true } = {}): void {
   // Anything else is work or luck that must not be destroyed by travel: a
   // stepped address becomes a parked foreign one, and a located image stays
   // parked until deliberately replaced or discarded.
+  const parking = wasAddressMode && state.held.kind === 'foreign';
   if (state.held.kind === 'seed') {
     if (state.held.offset === 0) {
       state.held = { kind: 'none' };
@@ -322,6 +333,9 @@ function setSeed(seed: Seed, { pushUrl = true } = {}): void {
     } else {
       state.held = { kind: 'foreign', label: 'a stepped address' };
     }
+  }
+  if (parking && state.held.kind === 'foreign') {
+    toast(`${state.held.label} is still loaded — the chip on the stage returns to it`);
   }
 
   renderSeed();
@@ -727,6 +741,104 @@ async function inspectPng(file: File): Promise<void> {
   }
 }
 
+/**
+ * All the formats a text import may land on: everything this GPU can resolve.
+ * Passed to the worker so inference happens where the parsing does.
+ */
+function resolvableFormats(): ArchiveFormat[] {
+  const out: ArchiveFormat[] = [];
+  const maxDim = renderer?.capabilities.maxTextureDimension ?? LIMITS.defaultMaxTextureDimension;
+  for (const resolution of RESOLUTIONS) {
+    for (const depth of DEPTHS) {
+      const f = { resolution, depth };
+      if (formatCapacity(f, maxDim).materialisable) out.push(f);
+    }
+  }
+  return out;
+}
+
+/** Applies a format a file brought with it, syncing every control. */
+function adoptImportedFormat(format: ArchiveFormat): void {
+  state.format = format;
+  $<HTMLSelectElement>('geometry').value = format.resolution.geometry;
+  renderResolutionOptions();
+  $<HTMLSelectElement>('resolution').value = format.resolution.id;
+  $<HTMLSelectElement>('depth').value = format.depth.id;
+  stage.setFormat(format);
+  renderScale();
+  updateSearchControls();
+}
+
+/**
+ * Reads an exported .txt back into the archive — the other half of the round
+ * trip. Hexadecimal is a byte string, so its length names its grid exactly.
+ * Decimal is a pure number whose leading zeros are gone, so the worker infers
+ * the smallest resolvable grid the value fits.
+ */
+async function importAddressText(file: File): Promise<void> {
+  busy(true, 'Reading the file', 0.05);
+  try {
+    const text = (await file.text()).replace(/[\s,._']/g, '');
+
+    if (/^[0-9a-fA-F]+$/.test(text) && !/^\d+$/.test(text)) {
+      // Unambiguously hexadecimal (contains a-f): bytes, directly.
+      if (text.length % 2) throw new Error('That hex file has an odd number of digits.');
+      const byteCount = text.length / 2;
+      const format = resolvableFormats().find(
+        (f) => f.resolution.width * f.resolution.height * f.depth.bytesPerPixel === byteCount,
+      );
+      if (!format) {
+        throw new Error(
+          `${byteCount.toLocaleString('en-US')} bytes of hex matches no grid this archive can resolve.`,
+        );
+      }
+      const bytes = new Uint8Array(byteCount);
+      for (let i = 0; i < byteCount; i++) bytes[i] = parseInt(text.slice(i * 2, i * 2 + 2), 16);
+
+      adoptImportedFormat(format);
+      await client.adopt(format, bytes.buffer);
+      state.held = { kind: 'foreign', label: file.name };
+      await adoptWorkerAddress();
+      await renderAddressReadout();
+      updateLaneUI();
+      renderVerdict(await client.verify(state.format));
+      $('searchStatus').textContent =
+        `Read ${file.name} as ${format.resolution.label} at ${format.depth.label}.`;
+      toast('Address restored from hexadecimal');
+      return;
+    }
+
+    if (/^\d+$/.test(text)) {
+      const ok = window.confirm(
+        `Read ${text.length.toLocaleString('en-US')} decimal digits back into an image?\n\n` +
+          `Parsing a number this size takes roughly as long as writing it did. ` +
+          `The tab stays responsive; the work happens off to one side.`,
+      );
+      if (!ok) return;
+      const format = await client.importDecimal(text, resolvableFormats(), onProgress);
+
+      adoptImportedFormat(format);
+      state.held = { kind: 'foreign', label: file.name };
+      await adoptWorkerAddress();
+      await renderAddressReadout();
+      updateLaneUI();
+      renderVerdict(await client.verify(state.format));
+      $('searchStatus').textContent =
+        `Read ${file.name} as ${format.resolution.label} at ${format.depth.label} — the smallest grid the number fits. ` +
+        `Decimal drops leading zeros, so an image that was mostly black may belong on a larger grid.`;
+      toast('Address restored from decimal');
+      return;
+    }
+
+    throw new Error('That file is neither hexadecimal nor decimal digits.');
+  } catch (error) {
+    $('searchStatus').textContent =
+      error instanceof Error ? error.message : 'That file could not be read as an address.';
+  } finally {
+    busy(false);
+  }
+}
+
 /** Reopens an address exported from here, completing the round trip. */
 async function openAddressFile(file: File): Promise<void> {
   busy(true, 'Reading address', 0.2);
@@ -747,13 +859,7 @@ async function openAddressFile(file: File): Promise<void> {
       );
     }
 
-    state.format = { resolution, depth };
-    $<HTMLSelectElement>('geometry').value = resolution.geometry;
-    renderResolutionOptions();
-    $<HTMLSelectElement>('resolution').value = resolution.id;
-    $<HTMLSelectElement>('depth').value = depth.id;
-    stage.setFormat(state.format);
-    renderScale();
+    adoptImportedFormat({ resolution, depth });
 
     // The unpacked view is a window onto the file's buffer; copy it so the
     // transfer to the worker hands over a buffer of exactly the right length.
@@ -1008,6 +1114,8 @@ async function boot(): Promise<void> {
   });
   seedInput.addEventListener('blur', renderSeed);
 
+  $('parkedChip').addEventListener('click', () => void returnToHeld());
+
   $('copySeed').addEventListener('click', async () => {
     await navigator.clipboard.writeText(location.href);
     toast(
@@ -1056,6 +1164,12 @@ async function boot(): Promise<void> {
     // An exported address is an image too — just one already in archive form.
     if (file.name.endsWith('.uia')) {
       void openAddressFile(file);
+      return;
+    }
+    // An exported address as text — hex or decimal — is the picture, and
+    // dropping it back must return the picture.
+    if (file.name.toLowerCase().endsWith('.txt') || file.type === 'text/plain') {
+      void importAddressText(file);
       return;
     }
     // A PNG might be a plate, and resampling it would destroy the claim before

@@ -182,6 +182,39 @@ A generator that fails at precisely the rate randomness predicts is a correct on
 Address panel recomputes entropy on whatever is loaded, so this is checkable on the picture
 in front of you rather than taken on faith.
 
+## One lane: walking an address without ever building one
+
+An address is 47.46 MiB, and materialising one to take a single step is what
+forced the coordinate lane and the address lane apart. It does not have to.
+
+Adding N to a base-256 integer changes only its least significant bytes — the last
+`ceil(log₂₅₆ N)` of them, plus however far the carry runs. Everything above is untouched.
+For a seeded address every byte is a pure function of its own index, so the image at
+`A(seed) + N` **is the seeded image with a few bytes rewritten at the very end**. The shader
+evaluates Philox everywhere except the last twelve pixels, where it reads a patch from a
+uniform.
+
+So a location is a **coordinate and a signed offset**, and stepping costs arithmetic on
+72 bytes plus a uniform upload — no allocation, no texture, no 47 MiB anywhere:
+
+| | Before | Now |
+| --- | --- | --- |
+| One step | ~300 ms (66 MB texture re-upload) | **0.125 ms** |
+| First step | 1.5 s materialisation | none |
+| On a browse-only 64K grid | impossible | **5 ms**, on an address of 30,681,454,953 digits |
+| Address visible before resolving | no | yes — head and tail are cheap from the generator |
+| Exact address in a URL | impossible at 47 MiB | `#c=…&o=424242` |
+
+The arrows therefore always mean *the address*. The coordinate stopped being something you
+walk and became what it always was: where you jump to.
+
+Two things make it honest rather than merely fast. The carry is the one thing that can
+escape the patch; that case is detected and reported, and the caller falls back to
+materialising — on a pseudorandom tail it needs all 72 bytes to be 0xFF, a probability of
+256⁻⁷². And a startup probe reads the tail pixels back off the GPU and compares them against
+the CPU's patch, because a shader painting a different address than the number beneath it
+claims would look exactly like one painting the right one.
+
 ## Walking, and coming back
 
 The rule the whole thing rests on: **walk N steps, walk back N, and you are exactly where

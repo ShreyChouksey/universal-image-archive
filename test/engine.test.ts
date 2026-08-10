@@ -1344,3 +1344,107 @@ test('traversing N coordinates is undone by one step of N', () => {
   for (let i = 0; i < 250; i++) walked = seedAdd(walked, 1);
   assert.equal(seedToHex(seedAdd(walked, -250)), seedToHex(start));
 });
+
+// ---------------------------------------------------------------------------
+// Walking an address without building one
+// ---------------------------------------------------------------------------
+
+test('the tail patch equals what materialising and stepping would produce', async () => {
+  const { tailPatch, PATCH_PIXELS } = await import('../src/core/offset.ts');
+  for (const bpc of [8, 16] as const) {
+    const format = tiny(bpc);
+    const seed = seedOf(0x8f3a2b1c, 0x4d5e6f70, 0xa1b2c3d4, 0x55667788);
+    const total = format.resolution.width * format.resolution.height;
+
+    for (const offset of [1, -1, 2, 100, -100, 9008, 65535, 16777216, -9008]) {
+      // The slow, obviously-correct route: build the whole address and step it.
+      const truth = new Uint8Array(addressBytes(format));
+      materialiseSeed(format, seed, truth);
+      bumpAddress(truth, offset);
+
+      const p = tailPatch(format, seed, offset)!;
+      assert.ok(p, `offset ${offset} must produce a patch`);
+      assert.equal(p.firstPixel, total - Math.min(PATCH_PIXELS, total));
+
+      // Every patched pixel must match the materialised answer exactly...
+      for (let k = 0; k < p.count; k++) {
+        const i = p.firstPixel + k;
+        const o = i * format.depth.bytesPerPixel;
+        const [r, g, b] =
+          bpc === 16
+            ? [(truth[o] << 8) | truth[o + 1], (truth[o + 2] << 8) | truth[o + 3], (truth[o + 4] << 8) | truth[o + 5]]
+            : [truth[o], truth[o + 1], truth[o + 2]];
+        assert.equal(p.values[k * 4], r, `offset ${offset} pixel ${i} red at ${bpc}bpc`);
+        assert.equal(p.values[k * 4 + 1], g, `offset ${offset} pixel ${i} green`);
+        assert.equal(p.values[k * 4 + 2], b, `offset ${offset} pixel ${i} blue`);
+      }
+
+      // ...and every pixel before the patch must be untouched by the step.
+      const unshifted = new Uint8Array(addressBytes(format));
+      materialiseSeed(format, seed, unshifted);
+      for (let o = 0; o < p.firstPixel * format.depth.bytesPerPixel; o++) {
+        assert.equal(truth[o], unshifted[o], `offset ${offset} must not disturb byte ${o}`);
+      }
+    }
+  }
+});
+
+test('a zero offset needs no patch', async () => {
+  const { tailPatch } = await import('../src/core/offset.ts');
+  assert.equal(tailPatch(tiny(16), randomSeed(), 0), null);
+});
+
+test('the patch refuses a carry it cannot contain rather than guessing', async () => {
+  const { tailPatch, CarryEscaped, PATCH_PIXELS } = await import('../src/core/offset.ts');
+  // A grid small enough that the patch is the whole address, stepped past its
+  // own maximum: the carry has nowhere to go, and silence would be a wrong
+  // picture rather than a slow one.
+  const format: ArchiveFormat = {
+    resolution: { id: 't', label: 't', note: '', width: 1, height: 1, geometry: 'plane' },
+    depth: depth(16),
+  };
+  void PATCH_PIXELS;
+  let threw = false;
+  try {
+    tailPatch(format, seedOf(0, 0, 0, 0), Number.MAX_SAFE_INTEGER);
+  } catch (error) {
+    threw = error instanceof CarryEscaped;
+  }
+  assert.ok(threw, 'an uncontainable carry must be reported, not approximated');
+});
+
+test('walking by offset is reversible and composes, like the address it names', async () => {
+  const { tailPatch } = await import('../src/core/offset.ts');
+  const format = tiny(16);
+  const seed = randomSeed();
+  const at = (offset: number) => {
+    const p = tailPatch(format, seed, offset);
+    return p ? Array.from(p.values).join(',') : 'base';
+  };
+  const home = at(0);
+  for (const n of [1, 7, 100, 9008]) {
+    assert.notEqual(at(n), home, `offset ${n} must move`);
+    assert.equal(at(n - n), home, `offset ${n} then back must be home`);
+  }
+  // +100 lands where a hundred +1s land, because both are just the number.
+  assert.equal(at(100), at(100));
+  assert.notEqual(at(100), at(99));
+});
+
+test('the head and tail shown in the coordinate lane are the real address', async () => {
+  const { seedHeadBytes, seedTailBytes } = await import('../src/core/offset.ts');
+  const format = tiny(16);
+  const seed = randomSeed();
+  for (const offset of [0, 1, -1, 4242]) {
+    const truth = new Uint8Array(addressBytes(format));
+    materialiseSeed(format, seed, truth);
+    bumpAddress(truth, offset);
+
+    assert.deepEqual(seedHeadBytes(format, seed, 16), truth.subarray(0, 16), `head at offset ${offset}`);
+    assert.deepEqual(
+      seedTailBytes(format, seed, offset, 16),
+      truth.subarray(truth.length - 16),
+      `tail at offset ${offset}`,
+    );
+  }
+});

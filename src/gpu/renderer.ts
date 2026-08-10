@@ -15,6 +15,7 @@
 import type { ArchiveFormat } from '../core/format';
 import type { Seed } from '../core/philox';
 import { DEFAULT_FOV } from '../core/sphere';
+import { PATCH_PIXELS, type TailPatch } from '../core/offset';
 import { GLSL_FRAG, GLSL_VERT, WGSL } from './shaders';
 
 export interface ViewState {
@@ -35,6 +36,17 @@ export interface RenderInput {
   format: ArchiveFormat;
   mode: 'seed' | 'address';
   seed: Seed;
+  /** Tail of the address once an offset is applied; null when sitting on the seed. */
+  patch?: TailPatch | null;
+}
+
+export interface ProbeOptions {
+  /** Render through the sphere projection from this heading instead of flat. */
+  look?: { yaw: number; pitch: number; fov: number };
+  /** Top-left image pixel to read back. Defaults to the origin. */
+  at?: { x: number; y: number };
+  /** Include the tail patch. Off by default so the generator is checked bare. */
+  withPatch?: boolean;
 }
 
 export interface Capabilities {
@@ -71,11 +83,12 @@ export interface Renderer {
    * With `look` it renders through the sphere projection instead, which is what
    * checks the projection.
    */
-  probe(input: RenderInput, look?: { yaw: number; pitch: number; fov: number }): Promise<Uint8Array>;
+  probe(input: RenderInput, options?: ProbeOptions): Promise<Uint8Array>;
   dispose(): void;
 }
 
-const UNIFORM_BYTES = 64;
+// 64 for the original block, 16 for patchInfo, 192 for twelve patched pixels.
+const UNIFORM_BYTES = 272;
 export const PROBE = 8;
 
 /**
@@ -112,6 +125,14 @@ function fillUniforms(
   f32[13] = (sphere ? 2 : 0) + (input.mode === 'address' ? 1 : 0);
   f32[14] = view.yaw;
   f32[15] = view.pitch;
+
+  const patch = input.patch ?? null;
+  u32[16] = patch ? patch.firstPixel : 0;
+  u32[17] = patch ? patch.count : 0;
+  u32[18] = 0;
+  u32[19] = 0;
+  if (patch) u32.set(patch.values.subarray(0, PATCH_PIXELS * 4), 20);
+  else u32.fill(0, 20, 20 + PATCH_PIXELS * 4);
 }
 
 const isSphere = (input: RenderInput): boolean =>
@@ -278,7 +299,9 @@ async function createWebGPU(canvas: HTMLCanvasElement): Promise<Renderer | null>
       pass.end();
       device.queue.submit([encoder.finish()]);
     },
-    async probe(input, look) {
+    async probe(input, options) {
+      const look = options?.look;
+      const at = options?.at;
       // A second pipeline, because the offscreen target's format need not match
       // the canvas's.
       const probePipeline = device.createRenderPipeline({
@@ -302,8 +325,11 @@ async function createWebGPU(canvas: HTMLCanvasElement): Promise<Renderer | null>
       fillUniforms(
         scratchF32,
         scratchU32,
-        input,
-        look ? { ...FLAT_VIEW, ...look } : { ...FLAT_VIEW, x: PROBE / 2, y: PROBE / 2, zoom: 1 },
+        // By default the probe checks the bare generator, so the patch is off.
+        options?.withPatch ? input : { ...input, patch: null },
+        look
+          ? { ...FLAT_VIEW, ...look }
+          : { ...FLAT_VIEW, x: (at?.x ?? 0) + PROBE / 2, y: (at?.y ?? 0) + PROBE / 2, zoom: 1 },
         PROBE,
         PROBE,
         look !== undefined,
@@ -445,8 +471,11 @@ function createWebGL2(canvas: HTMLCanvasElement): Renderer | null {
     view: gl.getUniformLocation(program, 'uView'),
     seed: gl.getUniformLocation(program, 'uSeed'),
     params: gl.getUniformLocation(program, 'uParams'),
+    patchInfo: gl.getUniformLocation(program, 'uPatchInfo'),
+    patch: gl.getUniformLocation(program, 'uPatch[0]'),
     addrTex: gl.getUniformLocation(program, 'uAddrTex'),
   };
+  const patchScratch = new Uint32Array(PATCH_PIXELS * 4);
 
   const vao = gl.createVertexArray();
   const texture = gl.createTexture()!;
@@ -519,13 +548,20 @@ function createWebGL2(canvas: HTMLCanvasElement): Renderer | null {
         view.yaw,
         view.pitch,
       );
+      const patch = input.patch ?? null;
+      gl.uniform4ui(uniforms.patchInfo, patch ? patch.firstPixel : 0, patch ? patch.count : 0, 0, 0);
+      if (patch) patchScratch.set(patch.values.subarray(0, PATCH_PIXELS * 4));
+      else patchScratch.fill(0);
+      gl.uniform4uiv(uniforms.patch, patchScratch);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, texture);
       gl.uniform1i(uniforms.addrTex, 0);
 
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     },
-    async probe(input, look) {
+    async probe(input, options) {
+      const look = options?.look;
+      const at = options?.at;
       const fboTex = gl.createTexture()!;
       gl.bindTexture(gl.TEXTURE_2D, fboTex);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, PROBE, PROBE, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
@@ -539,7 +575,14 @@ function createWebGL2(canvas: HTMLCanvasElement): Renderer | null {
 
       gl.useProgram(program);
       gl.bindVertexArray(vao);
-      const v = look ? { ...FLAT_VIEW, ...look } : { ...FLAT_VIEW, x: PROBE / 2, y: PROBE / 2, zoom: 1 };
+      const v = look
+        ? { ...FLAT_VIEW, ...look }
+        : { ...FLAT_VIEW, x: (at?.x ?? 0) + PROBE / 2, y: (at?.y ?? 0) + PROBE / 2, zoom: 1 };
+      const probePatch = options?.withPatch ? (input.patch ?? null) : null;
+      gl.uniform4ui(uniforms.patchInfo, probePatch ? probePatch.firstPixel : 0, probePatch ? probePatch.count : 0, 0, 0);
+      if (probePatch) patchScratch.set(probePatch.values.subarray(0, PATCH_PIXELS * 4));
+      else patchScratch.fill(0);
+      gl.uniform4uiv(uniforms.patch, patchScratch);
       gl.uniform2f(uniforms.imageSize, input.format.resolution.width, input.format.resolution.height);
       gl.uniform2f(uniforms.viewSize, PROBE, PROBE);
       gl.uniform4f(uniforms.view, v.x, v.y, v.zoom, v.fov);

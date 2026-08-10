@@ -45,6 +45,14 @@ import {
   type Seed,
 } from './core/philox';
 import { EQUAL_AREA_EFFICIENCY, arcminPerTexel, planeArcminPerPixel, screenToTexel } from './core/sphere';
+import {
+  CarryEscaped,
+  sampleAt,
+  seedHeadBytes,
+  seedTailBytes,
+  tailPatch,
+  type TailPatch,
+} from './core/offset';
 import { Stage } from './ui/stage';
 import { Reader, drawHistogram } from './ui/reader';
 import { addressAnchors, archiveAnchors, describeDecimalCost } from './core/magnitude';
@@ -80,7 +88,16 @@ type Held =
 interface State {
   format: ArchiveFormat;
   seed: Seed;
-  /** 'seed' renders from the coordinate; 'address' renders an uploaded texture. */
+  /**
+   * How far the location sits from the coordinate's own address, in steps.
+   *
+   * A location is a coordinate and an offset. Because an offset only rewrites
+   * the tail of the address, the pair names an exact address that the GPU can
+   * paint with nothing allocated — which is what lets the arrows always mean
+   * "address" without a 47 MiB materialisation standing in the way.
+   */
+  offset: number;
+  /** 'seed' renders from the coordinate and offset; 'address' renders a texture. */
   mode: 'seed' | 'address';
   held: Held;
   playing: boolean;
@@ -89,10 +106,24 @@ interface State {
 const state: State = {
   format: DEFAULT_FORMAT,
   seed: randomSeed(),
+  offset: 0,
   mode: 'seed',
   held: { kind: 'none' },
   playing: false,
 };
+
+/** The tail patch for the current location, recomputed only when it moves. */
+let patch: TailPatch | null = null;
+
+function refreshPatch(): boolean {
+  try {
+    patch = tailPatch(state.format, state.seed, state.offset);
+    return true;
+  } catch (error) {
+    if (error instanceof CarryEscaped) return false;
+    throw error;
+  }
+}
 
 const sameSeed = (a: Seed, b: Seed): boolean =>
   a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
@@ -134,7 +165,10 @@ function requestDraw(): void {
   frameQueued = true;
   requestAnimationFrame(() => {
     frameQueued = false;
-    renderer.draw({ format: state.format, mode: state.mode, seed: state.seed }, stage.view);
+    renderer.draw(
+      { format: state.format, mode: state.mode, seed: state.seed, patch },
+      stage.view,
+    );
   });
 }
 
@@ -286,6 +320,66 @@ function renderSeed(): void {
   input.dataset.invalid = 'false';
 }
 
+const hex = (bytes: Uint8Array): string =>
+  Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+
+/**
+ * The address readout for a location that has not been materialised.
+ *
+ * Head and tail come straight from the generator — a seeded address's leading
+ * bytes are just its first pixels, and its trailing bytes are the patch — so
+ * the exact address can be shown in the coordinate lane for the cost of a
+ * dozen Philox calls. Only the decimal residue needs the whole 47 MiB, and that
+ * stays behind "resolve".
+ */
+function renderSeedLocation(): void {
+  if (state.mode === 'address') return;
+  const cap = capacity();
+  const scale = archiveScale(state.format);
+
+  let head: string;
+  let tail: string;
+  try {
+    head = hex(seedHeadBytes(state.format, state.seed, 16));
+    tail = hex(seedTailBytes(state.format, state.seed, state.offset, 16));
+  } catch {
+    renderAddressPlaceholder();
+    return;
+  }
+
+  const offsetNote =
+    state.offset === 0
+      ? '<span class="dim">on the coordinate</span>'
+      : `<span class="dim">${state.offset > 0 ? '+' : '−'}${Math.abs(state.offset).toLocaleString('en-US')} from the coordinate</span>`;
+
+  $('addressReadout').innerHTML =
+    `<b>${head}</b> … <b>${tail}</b><br /><span class="dim">${group(scale.cardinalityDigits)} digits · ${offsetNote}` +
+    (cap.materialisable
+      ? ' · <button class="ghost" type="button" id="materialise">resolve</button></span>'
+      : '</span>');
+
+  if (cap.materialisable) {
+    $('materialise').addEventListener('click', () => void resolveAddress());
+  }
+  for (const id of ['stepUp', 'stepDown'] as const) {
+    $<HTMLButtonElement>(id).disabled = false;
+  }
+  for (const id of ['exportPng', 'exportAddress'] as const) {
+    const el = $<HTMLButtonElement>(id);
+    el.disabled = !cap.materialisable;
+    el.title = cap.materialisable ? '' : cap.reason;
+  }
+  // A parked image is still parked; keep its way back visible.
+  if (state.held.kind !== 'none') {
+    $('addressReadout').innerHTML +=
+      `<br /><span class="dim">still loaded: ${escapeHtml(heldLabel())} —</span> ` +
+      '<button class="ghost" type="button" id="heldReturn">return to it</button> ' +
+      '<button class="ghost" type="button" id="heldDiscard">discard</button>';
+    document.getElementById('heldReturn')?.addEventListener('click', () => void returnToHeld());
+    document.getElementById('heldDiscard')?.addEventListener('click', () => void discardHeld());
+  }
+}
+
 function renderAddressPlaceholder(): void {
   const cap = capacity();
   let html = cap.materialisable
@@ -333,10 +427,12 @@ async function renderAddressReadout(): Promise<void> {
 // Navigation
 // ---------------------------------------------------------------------------
 
-function setSeed(seed: Seed, { pushUrl = true } = {}): void {
+function setSeed(seed: Seed, { pushUrl = true, offset = 0 } = {}): void {
   const wasAddressMode = state.mode === 'address';
   state.seed = seed;
+  state.offset = offset;
   state.mode = 'seed';
+  refreshPatch();
   addressTexels = null;
   renderer.setAddressTexture(1, 1, null);
 
@@ -352,7 +448,7 @@ function setSeed(seed: Seed, { pushUrl = true } = {}): void {
   if (parking) toast(`${heldLabel()} is still loaded — the chip on the stage returns to it`);
 
   renderSeed();
-  renderAddressPlaceholder();
+  renderSeedLocation();
   updateLaneUI();
   requestDraw();
   if (pushUrl) syncUrl();
@@ -373,17 +469,32 @@ function stepSize(): number {
 }
 
 /**
- * Walk the lane the viewer is actually in.
+ * Walk the address. Always the address — there is only one thing to walk.
  *
- * This is the whole reversibility contract. A picture reached through search
- * lives at an address and has no coordinate, so moving the *coordinate* from
- * there is not travel — it is a jump into a different space, and coming back
- * returns the number without the picture. Whichever lane is on the stage is the
- * lane the arrows move, so walking out N and back N always lands exactly home.
+ * On a located picture that means stepping its materialised bytes. On a
+ * coordinate it means moving the offset, which rewrites the tail of the address
+ * and nothing else, so the step costs a uniform upload rather than 47 MiB. The
+ * coordinate itself is no longer something you walk; it is where you jump to.
  */
 function walk(delta: number): void {
-  if (state.mode === 'address') void stepAddress(delta);
-  else setSeed(seedAdd(state.seed, delta));
+  if (state.mode === 'address') {
+    void stepAddress(delta);
+    return;
+  }
+
+  const previous = state.offset;
+  state.offset += delta;
+  if (!refreshPatch()) {
+    // The carry ran past the tail. Astronomically rare on a pseudorandom
+    // address, and answered honestly rather than approximated.
+    state.offset = previous;
+    refreshPatch();
+    toast('That step runs past what the fast path can carry. Resolve the address to continue.');
+    return;
+  }
+  requestDraw();
+  renderSeedLocation();
+  syncUrl();
 }
 
 /** What a parked address should be called on the chip and in messages. */
@@ -446,7 +557,12 @@ async function resolveAddress(): Promise<void> {
   busy(true, 'Materialising address', 0);
   try {
     await client.materialise(state.format, state.seed, onProgress);
-    state.held = { kind: 'seed', seed: Uint32Array.from(state.seed) as Seed, offset: 0 };
+    if (state.offset !== 0) await client.step(state.offset);
+    state.held = {
+      kind: 'seed',
+      seed: Uint32Array.from(state.seed) as Seed,
+      offset: state.offset,
+    };
     // The seed lane already shows exactly these bytes, so the stage stays put.
     if (state.mode === 'address') {
       state.mode = 'seed';
@@ -540,6 +656,7 @@ async function adoptWorkerAddress(): Promise<void> {
 function syncUrl(): void {
   const params = new URLSearchParams();
   params.set('c', seedToHex(state.seed));
+  if (state.mode === 'seed' && state.offset !== 0) params.set('o', String(state.offset));
   params.set('g', geometryOf());
   params.set('r', state.format.resolution.id);
   params.set('d', state.format.depth.id);
@@ -553,6 +670,8 @@ function readUrl(): void {
     const seed = seedFromHex(c);
     if (seed) state.seed = seed;
   }
+  const o = Number(params.get('o'));
+  if (Number.isSafeInteger(o)) state.offset = o;
   const g = params.get('g') === 'sphere' ? 'sphere' : params.get('g') === 'plane' ? 'plane' : null;
   if (params.get('r')) {
     state.format = { ...state.format, resolution: resolutionById(params.get('r')!, g ?? undefined) };
@@ -585,7 +704,9 @@ function applyFormat(): void {
   addressTexels = null;
   renderer.setAddressTexture(1, 1, null);
   state.mode = 'seed';
-  renderAddressPlaceholder();
+  state.offset = 0;
+  refreshPatch();
+  renderSeedLocation();
   updateLaneUI();
   void client.release();
   requestDraw();
@@ -1300,7 +1421,13 @@ async function boot(): Promise<void> {
   stage = new Stage($('stage'), canvas, renderer, state.format, {
     sample: (x, y) => {
       if (state.mode === 'seed') {
-        return sampleSeed(state.format, state.seed, y * state.format.resolution.width + x);
+        return sampleAt(
+          state.format,
+          state.seed,
+          state.offset,
+          y * state.format.resolution.width + x,
+          patch,
+        );
       }
       if (!addressTexels) return null;
       const i = (y * state.format.resolution.width + x) * 4;
@@ -1510,7 +1637,7 @@ async function boot(): Promise<void> {
   stage.toggleLoupe(true);
   renderScale();
   renderSeed();
-  renderAddressPlaceholder();
+  renderSeedLocation();
   updateLaneUI();
   updateLowBitsHint();
   updateSearchControls();
@@ -1580,7 +1707,7 @@ async function runSelfChecks(): Promise<void> {
       const look = { yaw: 0, pitch: 0, fov: 0.008 };
       const gpu = await renderer.probe(
         { format: state.format, mode: 'seed', seed: state.seed },
-        look,
+        { look },
       );
       const shift = state.format.depth.bpc - 8;
       let mismatches = 0;
@@ -1607,6 +1734,43 @@ async function runSelfChecks(): Promise<void> {
     } catch (error) {
       console.warn('archive: sphere probe unavailable', error);
     }
+  }
+
+  // The offset is painted by the shader from a patch the CPU computed, so the
+  // two must agree on the tail pixels — otherwise the picture on screen would
+  // be at a different address than the number beneath it claims.
+  try {
+    const { width, height } = state.format.resolution;
+    const probeSeed = state.seed;
+    const testPatch = tailPatch(state.format, probeSeed, 1);
+    const at = { x: Math.max(0, width - PROBE), y: height - 1 };
+    const gpu = await renderer.probe(
+      { format: state.format, mode: 'seed', seed: probeSeed, patch: testPatch },
+      { at, withPatch: true },
+    );
+    const shift = state.format.depth.bpc - 8;
+    let mismatches = 0;
+    for (let x = 0; x < PROBE; x++) {
+      const px = at.x + x;
+      if (px >= width) continue;
+      const cpu = sampleAt(state.format, probeSeed, 1, at.y * width + px, testPatch);
+      // Row 0 of the readback is image row `at.y`.
+      const i = x * 3;
+      if (
+        Math.abs((cpu.r >> shift) - gpu[i]) > 1 ||
+        Math.abs((cpu.g >> shift) - gpu[i + 1]) > 1 ||
+        Math.abs((cpu.b >> shift) - gpu[i + 2]) > 1
+      ) {
+        mismatches++;
+      }
+    }
+    if (mismatches === 0) console.info('archive: offset patch paints exactly what the CPU computes');
+    else {
+      console.error(`archive: offset patch diverges on ${mismatches} tail pixels`);
+      toast('Offset rendering disagrees with the reference');
+    }
+  } catch (error) {
+    console.warn('archive: offset probe unavailable', error);
   }
 
   // A plate minted here has to verify everywhere, so prove the composition and

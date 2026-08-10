@@ -15,8 +15,14 @@ struct Uniforms {
   // xy = pan offset in image pixels, z = zoom, w = unused
   view        : vec4<f32>,
   seed        : vec4<u32>,
-  // x = maxChannel, y = mode (0 = seeded, 1 = address texture), zw unused
+  // x = maxChannel, y = mode (0 = seeded, 1 = address texture), zw = yaw/pitch
   params      : vec4<f32>,
+  // x = first patched pixel, y = how many are patched (0 = none)
+  tailInfo    : vec4<u32>,
+  // The tail of the address after an offset. Everything before it is still a
+  // pure function of the pixel index, which is what lets an address be walked
+  // without ever building one.
+  tailPatch   : array<vec4<u32>, 12>,
 };
 
 @group(0) @binding(0) var<uniform> u : Uniforms;
@@ -92,6 +98,11 @@ fn vs(@builtin(vertex_index) vi : u32) -> VSOut {
 fn fetch(px : vec2<i32>, mode : f32, maxChannel : f32) -> vec3<f32> {
   if (mode < 0.5) {
     let index = u32(px.y) * u32(u.imageSize.x) + u32(px.x);
+    // The offset's tail, where the address stops being the seed's own.
+    if (u.tailInfo.y > 0u && index >= u.tailInfo.x) {
+      let p = u.tailPatch[index - u.tailInfo.x];
+      return vec3<f32>(f32(p.x), f32(p.y), f32(p.z)) / maxChannel;
+    }
     let words = philox(index, 0u, u.seed.z, u.seed.w, u.seed.x, u.seed.y);
     let mask = u32(maxChannel);
     return vec3<f32>(
@@ -236,6 +247,8 @@ uniform vec2 uViewSize;
 uniform vec4 uView;      // xy = pan, z = zoom
 uniform uvec4 uSeed;
 uniform vec4 uParams;    // x = maxChannel, y = mode
+uniform uvec4 uPatchInfo; // x = first patched pixel, y = count
+uniform uvec4 uPatch[12];
 uniform usampler2D uAddrTex;
 
 out vec4 fragColor;
@@ -283,6 +296,11 @@ uvec4 philox(uint c0, uint c1, uint c2, uint c3, uint k0, uint k1) {
 vec3 fetch(ivec2 px, float mode, float maxChannel) {
   if (mode < 0.5) {
     uint index = uint(px.y) * uint(uImageSize.x) + uint(px.x);
+    // See the WGSL source: the offset's tail.
+    if (uPatchInfo.y > 0u && index >= uPatchInfo.x) {
+      uvec4 p = uPatch[int(index - uPatchInfo.x)];
+      return vec3(float(p.x), float(p.y), float(p.z)) / maxChannel;
+    }
     uvec4 w = philox(index, 0u, uSeed.z, uSeed.w, uSeed.x, uSeed.y);
     uint mask = uint(maxChannel);
     return vec3(float(w.x & mask), float(w.y & mask), float(w.z & mask)) / maxChannel;

@@ -295,6 +295,16 @@ edited, or every plate minted under it stops verifying.
 npm install && npm run dev
 ```
 
+```bash
+npm test
+```
+
+70 tests run the real modules under `node --test` with no build step, checking the fast
+paths against BigInt oracles and the codec against hand-built files — including a
+truncation sweep of every prefix of a PNG, tamper tests on plates, and decade-boundary
+attacks on the digit counter. CI runs them before every deploy; a broken invariant
+cannot ship.
+
 Needs WebGPU or WebGL2. Append `?backend=webgl2` to force the fallback path.
 
 ## Layout

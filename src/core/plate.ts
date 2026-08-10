@@ -256,19 +256,12 @@ function centred(layout: PlateLayout, text: string, scale: number, tracking: num
   return Math.round(layout.panel.x + (layout.panel.w - textWidth(text, scale, tracking)) / 2);
 }
 
-export function composePlate(
-  format: ArchiveFormat,
-  spec: PlateSpec,
-  out: Uint8Array,
-): PlateReport {
-  const layout = layoutFor(format, spec.layoutId);
-  if (!layout) throw new Error('That layout does not fit this grid.');
-  const width = format.resolution.width;
-  const statement = normaliseStatement(spec.statement);
-
-  // The ground is the archive itself: an ordinary seeded image, stamped over.
-  materialiseSeed(format, spec.seed, out);
-
+/**
+ * Stamps the full panel — ground, rules, eyebrow, statement, caption — for
+ * `statement`. The single source of those pixels: composition writes them with
+ * it and verification recomposes them with it, so the two cannot disagree.
+ */
+function stampPanel(layout: PlateLayout, statement: string, out: Uint8Array, width: number): void {
   const { panel, rule } = layout;
   fill(out, width, panel.x, panel.y, panel.w, panel.h, layout.ground);
   fill(out, width, panel.x, panel.y, panel.w, rule, layout.ink);
@@ -310,13 +303,28 @@ export function composePlate(
       layout.ink,
     );
   });
+}
+
+export function composePlate(
+  format: ArchiveFormat,
+  spec: PlateSpec,
+  out: Uint8Array,
+): PlateReport {
+  const layout = layoutFor(format, spec.layoutId);
+  if (!layout) throw new Error('That layout does not fit this grid.');
+  const width = format.resolution.width;
+  const statement = normaliseStatement(spec.statement);
+
+  // The ground is the archive itself: an ordinary seeded image, stamped over.
+  materialiseSeed(format, spec.seed, out);
+  stampPanel(layout, statement, out, width);
 
   // Everything is now fixed except the final two pixels, which are ground noise
   // well outside the panel. Solving them makes the whole number end in what the
   // panel already says.
   const { solutions } = solveTail(out, Number(statement));
 
-  const stampedPixels = panel.w * panel.h;
+  const stampedPixels = layout.panel.w * layout.panel.h;
   return { layout: layout.id, statement, stampedPixels, solutions };
 }
 
@@ -344,6 +352,10 @@ function same(a: readonly [number, number, number], b: readonly [number, number,
  * a glyph means this is not a plate rather than meaning it is a damaged one.
  * A hidden channel would make the plate a container for a claim instead of a
  * statement of one.
+ *
+ * Every pixel of every cell is compared. An earlier version probed two pixels
+ * per cell as a shortcut, which meant a defaced digit could still read as
+ * itself — the check has to be as literal as the claim it guards.
  */
 export function readPlateClaim(layout: PlateLayout, bytes: Uint8Array, width: number): string | null {
   const { scale, tracking, y } = layout.statement;
@@ -360,13 +372,13 @@ export function readPlateClaim(layout: PlateLayout, bytes: Uint8Array, width: nu
       for (let gy = 0; gy < GLYPH_H && ok; gy++) {
         for (let gx = 0; gx < GLYPH_W && ok; gx++) {
           const want = rows[gy][gx] === '#' ? layout.ink : layout.ground;
-          // One probe at the centre of each cell, then the cell's corners: a
-          // glyph that matches at every one of these is matching exactly, and
-          // checking all scale^2 pixels of every cell buys nothing further.
-          const cx = gx0 + gx * scale + (scale >> 1);
-          const cy = y + gy * scale + (scale >> 1);
-          if (!same(sample(bytes, width, cx, cy), want)) ok = false;
-          else if (!same(sample(bytes, width, gx0 + gx * scale, y + gy * scale), want)) ok = false;
+          const cellX = gx0 + gx * scale;
+          const cellY = y + gy * scale;
+          for (let py = 0; py < scale && ok; py++) {
+            for (let px = 0; px < scale && ok; px++) {
+              if (!same(sample(bytes, width, cellX + px, cellY + py), want)) ok = false;
+            }
+          }
         }
       }
       if (ok) {
@@ -378,6 +390,36 @@ export function readPlateClaim(layout: PlateLayout, bytes: Uint8Array, width: nu
     digits += matched;
   }
   return digits;
+}
+
+/**
+ * Confirms every stamped pixel of the panel — ground, rules, eyebrow, caption
+ * and digits — is exactly what the layout would have stamped for `statement`.
+ *
+ * This is what stops a plate whose caption has been quietly erased, or whose
+ * warning has been repainted, from verifying: the caption is part of what makes
+ * the object honest, so it is part of what the verdict covers. Composing a
+ * reference and comparing bytes reuses the exact stamping code, which means the
+ * check cannot drift from the construction.
+ */
+export function panelMatches(
+  layout: PlateLayout,
+  statement: string,
+  bytes: Uint8Array,
+  width: number,
+): boolean {
+  const reference = new Uint8Array(bytes.length);
+  stampPanel(layout, statement, reference, width);
+
+  const { panel } = layout;
+  for (let y = panel.y; y < panel.y + panel.h; y++) {
+    const rowStart = (y * width + panel.x) * 6;
+    const rowEnd = rowStart + panel.w * 6;
+    for (let o = rowStart; o < rowEnd; o++) {
+      if (bytes[o] !== reference[o]) return false;
+    }
+  }
+  return true;
 }
 
 export interface PlateVerdict {
@@ -400,7 +442,8 @@ export function verifyPlate(format: ArchiveFormat, bytes: Uint8Array): PlateVerd
       printed: null,
       computed,
       valid: false,
-      note: 'This is an 8-bit rendering of a plate, not the plate. Its address is a different number and its claim is false.',
+      // Carefully not claiming this WAS a plate: most 8-bit images never were.
+      note: 'Plates carry their claim in 16-bit channels; this file has 8, so there is no claim here to check. If it began as a plate, the re-encoding that halved it also unmade it.',
     };
   }
 
@@ -410,6 +453,22 @@ export function verifyPlate(format: ArchiveFormat, bytes: Uint8Array): PlateVerd
     }
     const printed = readPlateClaim(layout, bytes, format.resolution.width);
     if (printed === null) continue;
+
+    // The digits are readable — now the whole panel must be exactly what the
+    // layout stamps, caption and warning included. Without this, the parts of
+    // the plate that explain the plate could be edited away and it would still
+    // verify, which would make the object a liar about itself.
+    if (!panelMatches(layout, printed, bytes, format.resolution.width)) {
+      return {
+        isPlate: true,
+        layout: layout.id,
+        printed,
+        computed,
+        valid: false,
+        note: 'The digits read cleanly but the panel around them has been altered. A plate is its exact bytes, all of them.',
+      };
+    }
+
     return {
       isPlate: true,
       layout: layout.id,

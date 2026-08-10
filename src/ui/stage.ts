@@ -106,7 +106,9 @@ export class Stage {
           // constant as the view narrows.
           const perPixel = this.view.fov / this.#viewportH;
           this.view.yaw -= dx * perPixel;
-          this.view.pitch -= dy * perPixel;
+          // Dragging down pulls the sky down, which is looking up — and up is
+          // now genuinely positive pitch.
+          this.view.pitch += dy * perPixel;
           this.#clampLook();
         } else {
           this.view.x -= dx / this.view.zoom;

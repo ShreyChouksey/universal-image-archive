@@ -102,6 +102,11 @@ export class ArchiveClient {
     return res.report;
   }
 
+  /** Runs the plate composition self-check where it cannot stall a frame. */
+  async plateSelfCheck(format: ArchiveFormat, seed: Seed): Promise<void> {
+    await this.#send({ kind: 'selfcheck', format, seed: Array.from(seed) });
+  }
+
   /** Checks whether the loaded address is a plate, and whether it tells the truth. */
   async verify(format: ArchiveFormat): Promise<PlateVerdict> {
     const res = await this.#send({ kind: 'verify', format });

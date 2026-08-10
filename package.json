@@ -8,7 +8,9 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --import ./test/register.mjs --test test/engine.test.ts",
+    "check": "npm run typecheck && npm test"
   },
   "devDependencies": {
     "@webgpu/types": "^0.1.60",

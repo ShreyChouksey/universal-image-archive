@@ -51,11 +51,15 @@ export function directionFor(
   y *= inv;
   z *= inv;
 
-  // Pitch about x, then yaw about y.
+  // Pitch about x, then yaw about y. Signs chosen so positive pitch raises the
+  // view — the straight-ahead ray (0,0,1) maps to (0, sin p, cos p) — which is
+  // what the field above declares. An earlier version rotated the other way,
+  // and every consumer that trusted the declaration was silently mirrored in
+  // latitude.
   const cp = Math.cos(look.pitch);
   const sp = Math.sin(look.pitch);
-  const y1 = y * cp - z * sp;
-  const z1 = y * sp + z * cp;
+  const y1 = y * cp + z * sp;
+  const z1 = -y * sp + z * cp;
 
   const cy = Math.cos(look.yaw);
   const sy = Math.sin(look.yaw);

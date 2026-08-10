@@ -127,8 +127,8 @@ fn lookDirection(ndc : vec2<f32>, aspect : f32) -> vec3<f32> {
 
   let cp = cos(pitch);
   let sp = sin(pitch);
-  let y1 = d.y * cp - d.z * sp;
-  let z1 = d.y * sp + d.z * cp;
+  let y1 = d.y * cp + d.z * sp;
+  let z1 = -d.y * sp + d.z * cp;
 
   let cy = cos(yaw);
   let sy = sin(yaw);
@@ -310,8 +310,8 @@ vec3 lookDirection(vec2 ndc, float aspect) {
 
   float cp = cos(pitch);
   float sp = sin(pitch);
-  float y1 = d.y * cp - d.z * sp;
-  float z1 = d.y * sp + d.z * cp;
+  float y1 = d.y * cp + d.z * sp;
+  float z1 = -d.y * sp + d.z * cp;
 
   float cy = cos(yaw);
   float sy = sin(yaw);

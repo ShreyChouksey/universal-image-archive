@@ -12,21 +12,29 @@
  */
 
 import {
+  BIGINT_MAX_BYTES,
   bumpAddress,
   hexSlice,
   materialiseSeed,
   packAddressFile,
   readAddress,
 } from '../core/address';
-import { composePlate, verifyPlate, type PlateReport, type PlateVerdict } from '../core/plate';
+import {
+  composePlate,
+  plateSelfTest,
+  verifyPlate,
+  type PlateReport,
+  type PlateVerdict,
+} from '../core/plate';
 import type { ArchiveFormat } from '../core/format';
 import { encodePng } from '../core/png';
-import { philox4x32_10, philoxScratch, type Seed } from '../core/philox';
+import { type Seed } from '../core/philox';
 import { directionOfTexel } from '../core/sphere';
+import { encodeAddress, fillSurroundFromArchive, toTexture, type LowBits } from '../core/raster';
 
 export type FitMode = 'cover' | 'contain' | 'stretch';
 export type FlipMode = 'none' | 'horizontal' | 'vertical' | 'both';
-export type LowBits = 'replicate' | 'noise';
+export type { LowBits } from '../core/raster';
 
 export interface SearchOptions {
   fit: FitMode;
@@ -57,6 +65,7 @@ export type Request =
   | { id: number; kind: 'hexFile' }
   | { id: number; kind: 'plate'; format: ArchiveFormat; seed: number[]; statement: string; layoutId: string }
   | { id: number; kind: 'verify'; format: ArchiveFormat }
+  | { id: number; kind: 'selfcheck'; format: ArchiveFormat; seed: number[] }
   | { id: number; kind: 'texture' }
   | { id: number; kind: 'readout' }
   | { id: number; kind: 'png' }
@@ -90,46 +99,36 @@ let current: { format: ArchiveFormat; bytes: Uint8Array } | null = null;
 const post = (msg: Response, transfer: Transferable[] = []) =>
   (self as unknown as Worker).postMessage(msg, transfer);
 
-/** Address bytes -> RGBA16 texels for the GPU. Alpha is unused but keeps rows aligned. */
-function toTexture(format: ArchiveFormat, bytes: Uint8Array): Uint16Array {
-  const { width, height } = format.resolution;
-  const out = new Uint16Array(width * height * 4);
-  const n = width * height;
-  if (format.depth.bpc === 16) {
-    for (let i = 0; i < n; i++) {
-      const s = i * 6;
-      const d = i * 4;
-      out[d] = (bytes[s] << 8) | bytes[s + 1];
-      out[d + 1] = (bytes[s + 2] << 8) | bytes[s + 3];
-      out[d + 2] = (bytes[s + 4] << 8) | bytes[s + 5];
-      out[d + 3] = 65535;
-    }
-  } else {
-    for (let i = 0; i < n; i++) {
-      const s = i * 3;
-      const d = i * 4;
-      out[d] = bytes[s];
-      out[d + 1] = bytes[s + 1];
-      out[d + 2] = bytes[s + 2];
-      out[d + 3] = 255;
-    }
-  }
-  return out;
+/** Same colour-managed context for every read, or one image gets two addresses. */
+function context2d(canvas: OffscreenCanvas): OffscreenCanvasRenderingContext2D {
+  const ctx =
+    canvas.getContext('2d', { willReadFrequently: true, colorSpace: 'display-p3' }) ??
+    canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) throw new Error('no 2d context available in this worker');
+  return ctx;
+}
+
+/** A CSS colour as 8-bit RGB, resolved by the canvas so named colours work too. */
+function parseColour(css: string): [number, number, number] {
+  const c = new OffscreenCanvas(1, 1);
+  const ctx = context2d(c);
+  ctx.fillStyle = css;
+  ctx.fillRect(0, 0, 1, 1);
+  const d = ctx.getImageData(0, 0, 1, 1).data;
+  return [d[0], d[1], d[2]];
 }
 
 function drawToArchive(
   format: ArchiveFormat,
   bitmap: ImageBitmap,
   options: SearchOptions,
-): Uint8ClampedArray {
+): { rgba: Uint8ClampedArray; mask: Uint8Array } {
   const { width, height } = format.resolution;
   const canvas = new OffscreenCanvas(width, height);
-  const ctx = canvas.getContext('2d', { willReadFrequently: true, colorSpace: 'display-p3' })
-    ?? canvas.getContext('2d', { willReadFrequently: true });
-  if (!ctx) throw new Error('no 2d context available in this worker');
+  const ctx = context2d(canvas);
 
-  // 'archive' is painted after readback, straight into the address bytes, so it
-  // is the archive's own noise rather than a canvas approximation of it.
+  // 'archive' surround is painted after readback, straight into the address
+  // bytes, guided by the mask built below.
   ctx.fillStyle = options.fill === 'archive' ? '#000000' : options.fill;
   ctx.fillRect(0, 0, width, height);
 
@@ -150,6 +149,11 @@ function drawToArchive(
   const dy = inset + (boxH - drawH) / 2;
 
   ctx.save();
+  // The margin is a promise: under Cover the overflow would paint across it,
+  // so the box is also the clip.
+  ctx.beginPath();
+  ctx.rect(inset, inset, boxW, boxH);
+  ctx.clip();
   const flipX = options.flip === 'horizontal' || options.flip === 'both';
   const flipY = options.flip === 'vertical' || options.flip === 'both';
   ctx.translate(flipX ? width : 0, flipY ? height : 0);
@@ -159,7 +163,16 @@ function drawToArchive(
   ctx.drawImage(bitmap, dx, dy, drawW, drawH);
   ctx.restore();
 
-  return ctx.getImageData(0, 0, width, height).data;
+  // Where the photograph actually landed: its draw rectangle clipped to the
+  // box. The rectangle is centred, so the flips do not move it.
+  const x0 = Math.max(inset, Math.floor(dx));
+  const y0 = Math.max(inset, Math.floor(dy));
+  const x1 = Math.min(inset + boxW, Math.ceil(dx + drawW));
+  const y1 = Math.min(inset + boxH, Math.ceil(dy + drawH));
+  const mask = new Uint8Array(width * height);
+  for (let y = y0; y < y1; y++) mask.fill(1, y * width + x0, y * width + x1);
+
+  return { rgba: ctx.getImageData(0, 0, width, height).data, mask };
 }
 
 /**
@@ -183,8 +196,9 @@ function drawToSphere(
 ): { rgba: Uint8ClampedArray; mask: Uint8Array } {
   const { width, height } = format.resolution;
   const src = new OffscreenCanvas(bitmap.width, bitmap.height);
-  const sctx = src.getContext('2d', { willReadFrequently: true });
-  if (!sctx) throw new Error('no 2d context available in this worker');
+  // The same colour-managed read as the plane path, or the two geometries
+  // would assign one photograph two different addresses.
+  const sctx = context2d(src);
 
   const flipX = options.flip === 'horizontal' || options.flip === 'both';
   const flipY = options.flip === 'vertical' || options.flip === 'both';
@@ -197,6 +211,18 @@ function drawToSphere(
 
   const out = new Uint8ClampedArray(width * height * 4);
   const mask = new Uint8Array(width * height);
+
+  // The surround the user chose. 'archive' stays black here; it is painted
+  // into the address bytes afterwards, guided by the mask.
+  if (options.fill !== 'archive' && options.fill !== '#000000') {
+    const [fr, fg, fb] = parseColour(options.fill);
+    for (let i = 0; i < width * height; i++) {
+      out[i * 4] = fr;
+      out[i * 4 + 1] = fg;
+      out[i * 4 + 2] = fb;
+      out[i * 4 + 3] = 255;
+    }
+  }
 
   const aspect = bitmap.width / bitmap.height;
   const fovH = (options.placementFovDeg * Math.PI) / 180;
@@ -237,90 +263,6 @@ function drawToSphere(
   return { rgba: out, mask };
 }
 
-/**
- * Fills everything the photograph did not reach with the archive's own noise,
- * at the given coordinate. You supply what you saw; the archive supplies the
- * rest of what could have been seen from there.
- */
-function fillSurroundFromArchive(
-  format: ArchiveFormat,
-  seed: Seed,
-  bytes: Uint8Array,
-  mask: Uint8Array | null,
-): void {
-  const n = format.resolution.width * format.resolution.height;
-  const scratch = philoxScratch();
-  const wide = format.depth.bpc === 16;
-  for (let i = 0; i < n; i++) {
-    if (mask && mask[i]) continue;
-    philox4x32_10(scratch, i >>> 0, (i / 0x100000000) >>> 0, seed[2], seed[3], seed[0], seed[1]);
-    if (wide) {
-      const o = i * 6;
-      const r = scratch[0] & 0xffff;
-      const g = scratch[1] & 0xffff;
-      const b = scratch[2] & 0xffff;
-      bytes[o] = r >>> 8; bytes[o + 1] = r & 0xff;
-      bytes[o + 2] = g >>> 8; bytes[o + 3] = g & 0xff;
-      bytes[o + 4] = b >>> 8; bytes[o + 5] = b & 0xff;
-    } else {
-      const o = i * 3;
-      bytes[o] = scratch[0] & 0xff;
-      bytes[o + 1] = scratch[1] & 0xff;
-      bytes[o + 2] = scratch[2] & 0xff;
-    }
-  }
-}
-
-/**
- * 8-bit RGBA -> address bytes at the archive's depth.
- *
- * Promoting 8 bits to 16 by multiplying by 257 maps 0->0 and 255->65535 exactly,
- * which is the correct expansion. The low byte is then fully determined by the
- * high one — the image lands at a very unusual address, one of the vanishingly
- * few whose bytes repeat in pairs. `lowBits: 'noise'` instead seeds the low byte
- * from the archive itself, which leaves the picture visually identical and puts
- * it somewhere far more typical.
- */
-function encodeAddress(format: ArchiveFormat, rgba: Uint8ClampedArray, lowBits: LowBits): Uint8Array {
-  const n = format.resolution.width * format.resolution.height;
-  const out = new Uint8Array(n * format.depth.bytesPerPixel);
-
-  if (format.depth.bpc === 8) {
-    for (let i = 0; i < n; i++) {
-      out[i * 3] = rgba[i * 4];
-      out[i * 3 + 1] = rgba[i * 4 + 1];
-      out[i * 3 + 2] = rgba[i * 4 + 2];
-    }
-    return out;
-  }
-
-  if (lowBits === 'replicate') {
-    for (let i = 0; i < n; i++) {
-      const s = i * 4;
-      const d = i * 6;
-      out[d] = rgba[s];
-      out[d + 1] = rgba[s];
-      out[d + 2] = rgba[s + 1];
-      out[d + 3] = rgba[s + 1];
-      out[d + 4] = rgba[s + 2];
-      out[d + 5] = rgba[s + 2];
-    }
-  } else {
-    const scratch = philoxScratch();
-    for (let i = 0; i < n; i++) {
-      philox4x32_10(scratch, i >>> 0, 0, 0, 0, 0x9e3779b9, 0x85ebca6b);
-      const s = i * 4;
-      const d = i * 6;
-      out[d] = rgba[s];
-      out[d + 1] = scratch[0] & 0xff;
-      out[d + 2] = rgba[s + 1];
-      out[d + 3] = scratch[1] & 0xff;
-      out[d + 4] = rgba[s + 2];
-      out[d + 5] = scratch[2] & 0xff;
-    }
-  }
-  return out;
-}
 
 self.onmessage = async (event: MessageEvent<Request>) => {
   const req = event.data;
@@ -357,7 +299,9 @@ self.onmessage = async (event: MessageEvent<Request>) => {
           mask = placed.mask;
         } else {
           post({ id: req.id, kind: 'progress', label: 'Resampling to archive format', fraction: 0.1 });
-          rgba = drawToArchive(req.format, req.bitmap, req.options);
+          const placed = drawToArchive(req.format, req.bitmap, req.options);
+          rgba = placed.rgba;
+          mask = placed.mask;
         }
         req.bitmap.close();
 
@@ -397,6 +341,16 @@ self.onmessage = async (event: MessageEvent<Request>) => {
       case 'verify': {
         if (!current) throw new Error('no address is loaded');
         post({ id: req.id, kind: 'verdict', verdict: verifyPlate(req.format, current.bytes) });
+        break;
+      }
+
+      case 'selfcheck': {
+        // Composing and reading back a full plate takes seconds — main-thread
+        // work it used to do during boot, freezing first paint. Here it costs
+        // nobody anything.
+        const check = plateSelfTest(req.format, Uint32Array.from(req.seed) as Seed);
+        if (!check.ok) throw new Error(check.detail);
+        post({ id: req.id, kind: 'ok' });
         break;
       }
 
@@ -469,6 +423,12 @@ self.onmessage = async (event: MessageEvent<Request>) => {
       case 'decimal': {
         if (!current) throw new Error('no address is loaded');
         const bytes = current.bytes;
+        if (bytes.length > BIGINT_MAX_BYTES) {
+          throw new Error(
+            `The engine's integers stop at ${(BIGINT_MAX_BYTES / 1048576).toFixed(0)} MiB and this address is ` +
+              `${(bytes.length / 1048576).toFixed(0)} MiB. Hexadecimal carries the full number exactly.`,
+          );
+        }
         post({ id: req.id, kind: 'progress', label: 'Reading the address as one integer', fraction: 0.15 });
 
         const parts: string[] = [];

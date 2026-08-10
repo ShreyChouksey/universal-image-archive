@@ -60,6 +60,18 @@ export interface DecodedPng {
  * rather than guessing.
  */
 export async function decodePng(buffer: ArrayBuffer): Promise<DecodedPng | null> {
+  // The contract is null for anything unreadable. Truncated files, corrupt
+  // streams and header rubbish all land in the same try — an earlier version
+  // let RangeErrors from the chunk walk escape to the caller, so the interface
+  // showed raw exception text for any half-downloaded file.
+  try {
+    return await decodePngInner(buffer);
+  } catch {
+    return null;
+  }
+}
+
+async function decodePngInner(buffer: ArrayBuffer): Promise<DecodedPng | null> {
   const bytes = new Uint8Array(buffer);
   if (bytes.length < 8) return null;
   for (let i = 0; i < 8; i++) if (bytes[i] !== SIGNATURE[i]) return null;
@@ -70,12 +82,21 @@ export async function decodePng(buffer: ArrayBuffer): Promise<DecodedPng | null>
   let height = 0;
   let bpc = 0;
   let colourType = 0;
+  let sawEnd = false;
   const idat: Uint8Array[] = [];
 
   while (offset + 8 <= bytes.length) {
     const length = dv.getUint32(offset, false);
-    const type = String.fromCharCode(bytes[offset + 4], bytes[offset + 5], bytes[offset + 6], bytes[offset + 7]);
     const body = offset + 8;
+    if (body + length + 4 > bytes.length) return null; // chunk runs off the file
+    const type = String.fromCharCode(bytes[offset + 4], bytes[offset + 5], bytes[offset + 6], bytes[offset + 7]);
+
+    // The CRC is the format's own tamper seal; skipping it would decode a
+    // corrupted header into a confidently wrong image.
+    if (crc32(bytes.subarray(offset + 4, body + length)) !== dv.getUint32(body + length, false)) {
+      return null;
+    }
+
     if (type === 'IHDR') {
       width = dv.getUint32(body, false);
       height = dv.getUint32(body + 4, false);
@@ -85,26 +106,49 @@ export async function decodePng(buffer: ArrayBuffer): Promise<DecodedPng | null>
     } else if (type === 'IDAT') {
       idat.push(bytes.subarray(body, body + length));
     } else if (type === 'IEND') {
+      sawEnd = true;
       break;
     }
     offset = body + length + 4;
   }
 
+  // All the pixel data can be present and the file still be cut short: a
+  // missing IEND means whatever wrote or copied this stopped early, and a
+  // strict reader does not certify it.
+  if (!sawEnd) return null;
   if (!width || !height || (bpc !== 8 && bpc !== 16)) return null;
   const channels = colourType === 2 ? 3 : colourType === 6 ? 4 : 0;
   if (channels === 0) return null;
 
+  const sampleBytes = bpc / 8;
+  const bpp = channels * sampleBytes; // filter unit
+  const rowBytes = width * bpp;
+  const expected = height * (rowBytes + 1);
+  // Reject impossible geometry before allocating anything for it.
+  if (rowBytes > 2 ** 31 || expected > 2 ** 31) return null;
+
+  // Inflate with a ceiling. A small file can declare a tiny image and carry a
+  // stream that expands to hundreds of megabytes; reading it through a capped
+  // loop means a lying IDAT costs one chunk over budget, not the whole bomb.
   const inflate = new DecompressionStream('deflate') as unknown as ReadableWritablePair<
     Uint8Array,
     Uint8Array
   >;
   const source = new Blob(idat as BlobPart[]).stream() as unknown as ReadableStream<Uint8Array>;
-  const raw = new Uint8Array(await new Response(source.pipeThrough(inflate)).arrayBuffer());
-
-  const sampleBytes = bpc / 8;
-  const bpp = channels * sampleBytes; // filter unit
-  const rowBytes = width * bpp;
-  if (raw.length < height * (rowBytes + 1)) return null;
+  const reader = source.pipeThrough(inflate).getReader();
+  const raw = new Uint8Array(expected);
+  let got = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (got + value.length > expected) {
+      void reader.cancel();
+      return null; // stream inflates past what the header promises
+    }
+    raw.set(value, got);
+    got += value.length;
+  }
+  if (got < expected) return null;
 
   // Undo the per-scanline filters in place, one row at a time.
   const flat = new Uint8Array(height * rowBytes);

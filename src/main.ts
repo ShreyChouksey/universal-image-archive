@@ -28,12 +28,11 @@ import { decodePng } from './core/png';
 import {
   PLATE_LAYOUTS,
   normaliseStatement,
-  plateSelfTest,
   plateSupported,
   type PlateReport,
   type PlateVerdict,
 } from './core/plate';
-import { archiveScale, sampleSeed, unpackAddressFile } from './core/address';
+import { BIGINT_MAX_BYTES, archiveScale, sampleSeed, unpackAddressFile } from './core/address';
 import {
   randomSeed,
   seedAdd,
@@ -351,8 +350,10 @@ function updateSearchControls(): void {
   const sphere = geometryOf() === 'sphere';
   $('placementField').hidden = !sphere;
   // Fit and margin describe placing a rectangle inside a rectangle; on a sphere
-  // the lens angle does that job instead.
+  // the lens angle does that job instead, so controls that would be ignored are
+  // not shown rather than shown and disobeyed.
   ($('fit').closest('.field') as HTMLElement).hidden = sphere;
+  ($('frame').closest('div') as HTMLElement).hidden = sphere;
 }
 
 function updateLowBitsHint(): void {
@@ -446,9 +447,14 @@ async function renderAddressPanel(): Promise<void> {
     .join('');
 
   $('exportHint').textContent =
-    `Hexadecimal is exact and immediate. Decimal is the same number in base ten — ` +
-    `${group(scale.cardinalityDigits)} digits, about ${describeDecimalCost(scale.bytes)} to work out, ` +
-    `because the digit in any position depends on all ${bytesHuman(scale.bytes)}.`;
+    scale.bytes > BIGINT_MAX_BYTES
+      ? `Hexadecimal is exact and immediate at any size. Base ten is out of reach here: the ` +
+        `engine's integers stop at ${(BIGINT_MAX_BYTES / 1048576).toFixed(0)} MiB of address and this one is ` +
+        `${bytesHuman(scale.bytes)}.`
+      : `Hexadecimal is exact and immediate. Decimal is the same number in base ten — ` +
+        `${group(scale.cardinalityDigits)} digits, about ${describeDecimalCost(scale.bytes)} to work out, ` +
+        `because the digit in any position depends on all ${bytesHuman(scale.bytes)}.`;
+  $<HTMLButtonElement>('exportDecimal').disabled = scale.bytes > BIGINT_MAX_BYTES;
 }
 
 // ---------------------------------------------------------------------------
@@ -726,6 +732,12 @@ async function exportDecimal(): Promise<void> {
   if (!state.resolved) return;
 
   const scale = archiveScale(state.format);
+  if (scale.bytes > BIGINT_MAX_BYTES) {
+    toast(
+      `Base-ten conversion stops at ${(BIGINT_MAX_BYTES / 1048576).toFixed(0)} MiB of address — hexadecimal carries the full number exactly.`,
+    );
+    return;
+  }
   const estimate = describeDecimalCost(scale.bytes);
   const ok = window.confirm(
     `Work out all ${group(scale.cardinalityDigits)} decimal digits?\n\n` +
@@ -1107,13 +1119,16 @@ async function runSelfChecks(): Promise<void> {
 
   // A plate minted here has to verify everywhere, so prove the composition and
   // the readback agree before anyone is handed an object that claims they do.
+  // In the worker: it composes a full 4K plate, which is seconds of work that
+  // used to freeze the first paint.
   if (plateSupported(state.format)) {
-    const plate = plateSelfTest(state.format, state.seed);
-    if (plate.ok) console.info(`archive: ${plate.detail}`);
-    else {
-      console.error(`archive: plate self-check failed — ${plate.detail}`);
-      toast('Plate construction failed its self-check');
-    }
+    client
+      .plateSelfCheck(state.format, state.seed)
+      .then(() => console.info('archive: plate composes and reads back exactly'))
+      .catch((error: unknown) => {
+        console.error('archive: plate self-check failed', error);
+        toast('Plate construction failed its self-check');
+      });
   }
 }
 

@@ -1488,10 +1488,13 @@ function openDrawer(panel: string | null): void {
   const drawer = $('drawer');
   if (!panel) {
     drawer.dataset.open = 'false';
+    document.body.dataset.drawerOpen = 'false';
     document.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-expanded', 'false'));
+    window.dispatchEvent(new Event('resize'));
     return;
   }
   drawer.dataset.open = 'true';
+  document.body.dataset.drawerOpen = 'true';
   $('drawerTitle').textContent = TITLES[panel] ?? panel;
   drawer.querySelectorAll<HTMLElement>('.drawer__body').forEach((body) => {
     body.hidden = body.dataset.panel !== panel;
@@ -1499,6 +1502,7 @@ function openDrawer(panel: string | null): void {
   document.querySelectorAll<HTMLElement>('.tab').forEach((t) => {
     t.setAttribute('aria-expanded', String(t.dataset.drawer === panel));
   });
+  window.dispatchEvent(new Event('resize'));
 }
 
 // ---------------------------------------------------------------------------

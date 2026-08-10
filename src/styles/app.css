@@ -222,6 +222,14 @@ kbd {
   display: grid;
   grid-template-rows: var(--rail-h) 1fr auto;
   height: 100%;
+  width: 100%;
+  transition: width var(--base) var(--ease);
+}
+
+@media (min-width: 901px) {
+  body[data-drawer-open='true'] .frame {
+    width: calc(100% - var(--drawer-w));
+  }
 }
 
 /* ---------------------------------------------------------------------- rail */

@@ -171,10 +171,16 @@ export class ArchiveClient {
     return res;
   }
 
-  async readout(): Promise<AddressReadout> {
+  async readout(): Promise<
+    AddressReadout & { residue: number; headBytes: Uint8Array; tailBytes: Uint8Array }
+  > {
     const res = await this.#send({ kind: 'readout' });
     if (res.kind !== 'readout') throw new Error('unexpected response');
-    return res.readout;
+    return res.readout as AddressReadout & {
+      residue: number;
+      headBytes: Uint8Array;
+      tailBytes: Uint8Array;
+    };
   }
 
   async png(onProgress?: (p: Progress) => void): Promise<{ blob: Blob; filename: string }> {

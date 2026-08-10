@@ -47,12 +47,15 @@ import {
 import { EQUAL_AREA_EFFICIENCY, arcminPerTexel, planeArcminPerPixel, screenToTexel } from './core/sphere';
 import {
   CarryEscaped,
+  applyOffsetToTail,
   sampleAt,
   seedHeadBytes,
   seedTailBytes,
   tailPatch,
+  tailPatchFromBytes,
   type TailPatch,
 } from './core/offset';
+import { DECIMAL_MODULUS } from './core/address';
 import { Stage } from './ui/stage';
 import { Reader, drawHistogram } from './ui/reader';
 import { addressAnchors, archiveAnchors, describeDecimalCost } from './core/magnitude';
@@ -115,9 +118,25 @@ const state: State = {
 /** The tail patch for the current location, recomputed only when it moves. */
 let patch: TailPatch | null = null;
 
+/**
+ * Everything about the loaded address that lets a nearby one be described
+ * without asking the worker again: its head, its tail, and its residue.
+ *
+ * A step only rewrites the tail, and the residue of base+delta is
+ * (residue+delta) mod 10^15 exactly — so with these three in hand a located
+ * photograph walks at the same cost as a generated one, and the 47 MiB sits
+ * untouched in the worker the whole time.
+ */
+let base: { head: Uint8Array; tail: Uint8Array; residue: number; digits: number } | null = null;
+
 function refreshPatch(): boolean {
   try {
-    patch = tailPatch(state.format, state.seed, state.offset);
+    patch =
+      state.mode === 'address'
+        ? base
+          ? tailPatchFromBytes(state.format, base.tail, state.offset)
+          : null
+        : tailPatch(state.format, state.seed, state.offset);
     return true;
   } catch (error) {
     if (error instanceof CarryEscaped) return false;
@@ -125,14 +144,51 @@ function refreshPatch(): boolean {
   }
 }
 
+/**
+ * Fold a pending offset into the worker's bytes.
+ *
+ * Stepping leaves the buffer at the base and carries the drift separately,
+ * which is what makes it free. Anything that needs the address to actually BE
+ * the bytes — exporting, verifying a plate, reading it in the panel — calls
+ * this first. It is one step of arithmetic on 47 MiB, paid once at the moment
+ * it matters rather than on every press.
+ */
+async function flushOffset(): Promise<void> {
+  if (state.offset === 0 || state.mode !== 'address' || state.held.kind === 'none') return;
+  const delta = state.offset;
+  const changedFrom = await client.step(delta);
+  state.offset = 0;
+  patch = null;
+
+  // Repaint the rows the carry reached, and refresh the cached base.
+  const { width, height } = state.format.resolution;
+  const bpp = state.format.depth.bytesPerPixel;
+  const firstRow = Math.max(0, Math.floor(changedFrom / bpp / width));
+  if (addressTexels) {
+    const band = await client.textureRows(firstRow, height - firstRow);
+    renderer.updateAddressRows(band.y0, band.rows, band.data);
+    addressTexels.set(band.data, band.y0 * width * 4);
+  } else {
+    await adoptWorkerAddress();
+  }
+  await renderAddressReadout();
+  requestDraw();
+}
+
 const sameSeed = (a: Seed, b: Seed): boolean =>
   a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
 
-/** True when the worker's bytes are exactly the image on the stage. */
+/**
+ * True when the worker's bytes are the image on the stage — or can be made so
+ * by folding in a pending offset, which `flushOffset` does on demand.
+ */
 function workerMatchesStage(): boolean {
   if (state.mode === 'address') return state.held.kind !== 'none';
   return (
-    state.held.kind === 'seed' && state.held.offset === 0 && sameSeed(state.held.seed, state.seed)
+    state.offset === 0 &&
+    state.held.kind === 'seed' &&
+    state.held.offset === 0 &&
+    sameSeed(state.held.seed, state.seed)
   );
 }
 
@@ -380,6 +436,38 @@ function renderSeedLocation(): void {
   }
 }
 
+/**
+ * The readout for a loaded address plus an offset, computed entirely here.
+ *
+ * The head is the base's head unless the carry reached it, the tail is the
+ * patched tail, and the decimal residue moves by the offset — so a located
+ * photograph shows its exact address while it is being walked, with the worker
+ * never consulted.
+ */
+function renderAddressLocation(): void {
+  if (state.mode !== 'address' || !base) return;
+  if (state.offset === 0) {
+    void renderAddressReadout();
+    return;
+  }
+
+  const bpp = state.format.depth.bytesPerPixel;
+  const count = Math.floor(base.tail.length / bpp) * bpp;
+  const tail = base.tail.slice(0, count);
+  try {
+    applyOffsetToTail(tail, state.offset);
+  } catch {
+    return;
+  }
+  const m = DECIMAL_MODULUS;
+  const residue = (((base.residue + (state.offset % m)) % m) + m) % m;
+
+  $('addressReadout').innerHTML =
+    `<b>${hex(base.head)}</b> … <b>${hex(tail.subarray(Math.max(0, tail.length - 16)))}</b>` +
+    `<br /><span class="dim">${group(base.digits)} digits · ends …${String(residue).padStart(15, '0').slice(-12)}` +
+    ` · ${state.offset > 0 ? '+' : '−'}${Math.abs(state.offset).toLocaleString('en-US')} from the loaded address</span>`;
+}
+
 function renderAddressPlaceholder(): void {
   const cap = capacity();
   let html = cap.materialisable
@@ -413,6 +501,7 @@ function renderAddressPlaceholder(): void {
 
 async function renderAddressReadout(): Promise<void> {
   const r = await client.readout();
+  base = { head: r.headBytes, tail: r.tailBytes, residue: r.residue, digits: r.digitCount };
   if (!$('addressLoaded').hidden || $('drawerTitle').textContent === TITLES.address) {
     void renderAddressPanel();
   }
@@ -477,23 +566,23 @@ function stepSize(): number {
  * coordinate itself is no longer something you walk; it is where you jump to.
  */
 function walk(delta: number): void {
-  if (state.mode === 'address') {
-    void stepAddress(delta);
-    return;
-  }
-
   const previous = state.offset;
   state.offset += delta;
   if (!refreshPatch()) {
-    // The carry ran past the tail. Astronomically rare on a pseudorandom
-    // address, and answered honestly rather than approximated.
+    // The carry ran past the tail, so bytes outside it moved too. Fold what we
+    // have into the buffer and take the step properly — rare enough to be a
+    // curiosity, and answered exactly rather than approximated.
     state.offset = previous;
     refreshPatch();
-    toast('That step runs past what the fast path can carry. Resolve the address to continue.');
+    void (async () => {
+      await flushOffset();
+      await stepAddress(delta);
+    })();
     return;
   }
   requestDraw();
-  renderSeedLocation();
+  if (state.mode === 'address') renderAddressLocation();
+  else renderSeedLocation();
   syncUrl();
 }
 
@@ -646,6 +735,8 @@ async function applyStep(delta: number): Promise<void> {
 
 /** Pull the worker's current address onto the GPU and into the loupe's reach. */
 async function adoptWorkerAddress(): Promise<void> {
+  state.offset = 0;
+  patch = null;
   const tex = await client.texture();
   addressTexels = tex.data;
   renderer.setAddressTexture(tex.width, tex.height, tex.data);
@@ -851,6 +942,7 @@ async function renderAddressPanel(): Promise<void> {
   empty.hidden = true;
   loaded.hidden = false;
 
+  await flushOffset();
   const scale = archiveScale(state.format);
   if (!reader) {
     reader = new Reader(client, state.format, {
@@ -863,6 +955,7 @@ async function renderAddressPanel(): Promise<void> {
   }
   reader.setFormat(state.format, scale.bytes);
 
+  await flushOffset();
   const report = await client.entropy();
   $('entropyFacts').innerHTML = [
     ['Shannon entropy', `${report.bitsPerByte.toFixed(6)} of 8 bits per byte`],
@@ -1248,6 +1341,7 @@ function download(blob: Blob, filename: string): void {
 async function exportPng(): Promise<void> {
   if (!workerMatchesStage()) await resolveAddress();
   if (!workerMatchesStage()) return;
+  await flushOffset();
   busy(true, 'Encoding PNG', 0);
   try {
     const { blob, filename } = await client.png(onProgress);
@@ -1263,6 +1357,7 @@ async function exportPng(): Promise<void> {
 async function exportAddress(): Promise<void> {
   if (!workerMatchesStage()) await resolveAddress();
   if (!workerMatchesStage()) return;
+  await flushOffset();
   const { blob, filename } = await client.addressFile();
   download(blob, filename);
   toast(`Address written · ${bytesHuman(blob.size)}`);
@@ -1272,6 +1367,7 @@ async function exportAddress(): Promise<void> {
 async function exportHex(): Promise<void> {
   if (!workerMatchesStage()) await resolveAddress();
   if (!workerMatchesStage()) return;
+  await flushOffset();
   busy(true, 'Writing hexadecimal', 0);
   try {
     const { blob, filename } = await client.hexFile(onProgress);
@@ -1293,6 +1389,7 @@ async function exportHex(): Promise<void> {
 async function exportDecimal(): Promise<void> {
   if (!workerMatchesStage()) await resolveAddress();
   if (!workerMatchesStage()) return;
+  await flushOffset();
 
   const scale = archiveScale(state.format);
   if (scale.bytes > BIGINT_MAX_BYTES) {
@@ -1429,8 +1526,13 @@ async function boot(): Promise<void> {
           patch,
         );
       }
+      const index = y * state.format.resolution.width + x;
+      if (patch && index >= patch.firstPixel) {
+        const d = (index - patch.firstPixel) * 4;
+        return { r: patch.values[d], g: patch.values[d + 1], b: patch.values[d + 2] };
+      }
       if (!addressTexels) return null;
-      const i = (y * state.format.resolution.width + x) * 4;
+      const i = index * 4;
       return { r: addressTexels[i], g: addressTexels[i + 1], b: addressTexels[i + 2] };
     },
     onViewChange: requestDraw,

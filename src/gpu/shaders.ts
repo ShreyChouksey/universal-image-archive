@@ -96,13 +96,16 @@ fn vs(@builtin(vertex_index) vi : u32) -> VSOut {
 }
 
 fn fetch(px : vec2<i32>, mode : f32, maxChannel : f32) -> vec3<f32> {
+  let index = u32(px.y) * u32(u.imageSize.x) + u32(px.x);
+
+  // The offset's tail, above the branch: it overrides whichever base is in
+  // play, so a generated address and a loaded one step by the same mechanism.
+  if (u.tailInfo.y > 0u && index >= u.tailInfo.x) {
+    let p = u.tailPatch[index - u.tailInfo.x];
+    return vec3<f32>(f32(p.x), f32(p.y), f32(p.z)) / maxChannel;
+  }
+
   if (mode < 0.5) {
-    let index = u32(px.y) * u32(u.imageSize.x) + u32(px.x);
-    // The offset's tail, where the address stops being the seed's own.
-    if (u.tailInfo.y > 0u && index >= u.tailInfo.x) {
-      let p = u.tailPatch[index - u.tailInfo.x];
-      return vec3<f32>(f32(p.x), f32(p.y), f32(p.z)) / maxChannel;
-    }
     let words = philox(index, 0u, u.seed.z, u.seed.w, u.seed.x, u.seed.y);
     let mask = u32(maxChannel);
     return vec3<f32>(
@@ -294,13 +297,15 @@ uvec4 philox(uint c0, uint c1, uint c2, uint c3, uint k0, uint k1) {
 }
 
 vec3 fetch(ivec2 px, float mode, float maxChannel) {
+  uint index = uint(px.y) * uint(uImageSize.x) + uint(px.x);
+
+  // See the WGSL source: the tail overrides whichever base is in play.
+  if (uPatchInfo.y > 0u && index >= uPatchInfo.x) {
+    uvec4 p = uPatch[int(index - uPatchInfo.x)];
+    return vec3(float(p.x), float(p.y), float(p.z)) / maxChannel;
+  }
+
   if (mode < 0.5) {
-    uint index = uint(px.y) * uint(uImageSize.x) + uint(px.x);
-    // See the WGSL source: the offset's tail.
-    if (uPatchInfo.y > 0u && index >= uPatchInfo.x) {
-      uvec4 p = uPatch[int(index - uPatchInfo.x)];
-      return vec3(float(p.x), float(p.y), float(p.z)) / maxChannel;
-    }
     uvec4 w = philox(index, 0u, uSeed.z, uSeed.w, uSeed.x, uSeed.y);
     uint mask = uint(maxChannel);
     return vec3(float(w.x & mask), float(w.y & mask), float(w.z & mask)) / maxChannel;

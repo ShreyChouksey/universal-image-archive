@@ -205,8 +205,25 @@ So a location is a **coordinate and a signed offset**, and stepping costs arithm
 | Address visible before resolving | no | yes — head and tail are cheap from the generator |
 | Exact address in a URL | impossible at 47 MiB | `#c=…&o=424242` |
 
-The arrows therefore always mean *the address*. The coordinate stopped being something you
-walk and became what it always was: where you jump to.
+**A located photograph walks the same way.** Its picture is already on the GPU as a texture,
+and a step still only rewrites the tail — so the patch rides on top of the texture exactly
+as it rides on top of the generator, and the 47 MiB in the worker is never touched while you
+walk. The base's head, tail and decimal residue are handed over once when it loads, and
+every nearby address is then described entirely on the main thread.
+
+| Stepping a located photograph | Before | Now |
+| --- | --- | --- |
+| Per step | 6 ms (banded texture upload + worker round trip) | **0.097 ms** |
+| Worker traffic per step | two messages | none |
+
+The worker's buffer stays at the base and the drift is carried separately, which is what
+makes it free. Anything that needs the address to actually *be* the bytes — exporting,
+verifying a plate, reading it in the Address panel — folds the drift in first: one step of
+arithmetic on 47 MiB, paid once at the moment it matters instead of on every press.
+
+The arrows therefore always mean *the address*, by one mechanism, whatever the base. The
+coordinate stopped being something you walk and became what it always was: where you jump
+to.
 
 Two things make it honest rather than merely fast. The carry is the one thing that can
 escape the patch; that case is detected and reported, and the caller falls back to

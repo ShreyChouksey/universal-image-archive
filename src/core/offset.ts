@@ -13,10 +13,16 @@
  * evaluating Philox everywhere except the last handful of pixels, where it
  * reads a patch instead.
  *
- * So a location is a coordinate and a signed offset. Stepping costs the
- * arithmetic on ~72 bytes and a uniform upload — no allocation, no texture, no
- * 47 MiB anywhere. It works on grids far too large to materialise at all, and
- * because the pair is small, an exact address finally fits in a URL.
+ * So a location is a base and a signed offset. Stepping costs the arithmetic on
+ * ~72 bytes and a uniform upload — no allocation, no texture, no 47 MiB
+ * anywhere. It works on grids far too large to materialise at all, and because
+ * the pair is small, an exact address finally fits in a URL.
+ *
+ * Nothing here cares where the base came from. A seeded address supplies its
+ * tail from the generator; a located photograph supplies it from the bytes
+ * already loaded, with its picture already on the GPU as a texture. Either way
+ * the offset rewrites the same last few bytes, so both lanes step at the same
+ * cost by the same code.
  *
  * The carry is the one thing that can escape. If it runs past the patch the
  * answer would be wrong, so that case is detected and reported rather than
@@ -82,36 +88,32 @@ export class CarryEscaped extends Error {
   }
 }
 
-export function tailPatch(format: ArchiveFormat, seed: Seed, offset: number): TailPatch | null {
-  if (offset === 0) return null;
-
-  const total = pixelCount(format);
-  const count = Math.min(PATCH_PIXELS, total);
-  const firstPixel = total - count;
-  const bpp = format.depth.bytesPerPixel;
-
-  const bytes = tailBytes(format, seed, firstPixel, count);
-
-  // BigInt is the right tool at 72 bytes and the wrong one at 47 MiB — here it
-  // is exact and instant.
-  const width = BigInt(bytes.length * 8);
-  const modulus = 1n << width;
+/**
+ * Adds `offset` to a tail read as one big-endian integer, in place.
+ *
+ * BigInt is the right tool at 72 bytes and the wrong one at 47 MiB — here it is
+ * exact and instant. Throws when the carry leaves the tail, because bytes
+ * outside it would have changed and painting them unchanged would be a
+ * different picture wearing the right number.
+ */
+export function applyOffsetToTail(bytes: Uint8Array, offset: number): void {
+  const modulus = 1n << BigInt(bytes.length * 8);
   let value = 0n;
   for (const b of bytes) value = (value << 8n) | BigInt(b);
 
   const moved = value + BigInt(Math.trunc(offset));
-  if (moved < 0n || moved >= modulus) {
-    // The step crossed the top or bottom of the patch, so bytes outside it
-    // changed too. Refusing beats quietly painting the wrong picture.
-    throw new CarryEscaped();
-  }
+  if (moved < 0n || moved >= modulus) throw new CarryEscaped();
 
   let v = moved;
   for (let i = bytes.length - 1; i >= 0; i--) {
     bytes[i] = Number(v & 0xffn);
     v >>= 8n;
   }
+}
 
+/** Packs tail bytes into the uniform layout the shader reads. */
+export function packTailPatch(bytes: Uint8Array, bpp: number, firstPixel: number): TailPatch {
+  const count = Math.floor(bytes.length / bpp);
   const values = new Uint32Array(PATCH_PIXELS * 4);
   for (let k = 0; k < count; k++) {
     const o = k * bpp;
@@ -127,6 +129,34 @@ export function tailPatch(format: ArchiveFormat, seed: Seed, offset: number): Ta
     }
   }
   return { firstPixel, values, count };
+}
+
+/** How many trailing bytes a base must supply for the patch to work. */
+export function patchByteCount(format: ArchiveFormat): number {
+  return Math.min(PATCH_PIXELS, pixelCount(format)) * format.depth.bytesPerPixel;
+}
+
+/** The patch for a base whose tail bytes are already in hand — a loaded address. */
+export function tailPatchFromBytes(
+  format: ArchiveFormat,
+  baseTail: Uint8Array,
+  offset: number,
+): TailPatch | null {
+  if (offset === 0) return null;
+  const bpp = format.depth.bytesPerPixel;
+  const count = Math.floor(baseTail.length / bpp);
+  const bytes = baseTail.slice(0, count * bpp);
+  applyOffsetToTail(bytes, offset);
+  return packTailPatch(bytes, bpp, pixelCount(format) - count);
+}
+
+export function tailPatch(format: ArchiveFormat, seed: Seed, offset: number): TailPatch | null {
+  if (offset === 0) return null;
+  const total = pixelCount(format);
+  const count = Math.min(PATCH_PIXELS, total);
+  const bytes = tailBytes(format, seed, total - count, count);
+  applyOffsetToTail(bytes, offset);
+  return packTailPatch(bytes, format.depth.bytesPerPixel, total - count);
 }
 
 /**
@@ -192,18 +222,6 @@ export function seedTailBytes(
   const pixels = Math.min(total, Math.ceil(count / bpp));
   const first = total - pixels;
   const bytes = tailBytes(format, seed, first, pixels);
-
-  if (offset !== 0) {
-    const modulus = 1n << BigInt(bytes.length * 8);
-    let value = 0n;
-    for (const b of bytes) value = (value << 8n) | BigInt(b);
-    const moved = value + BigInt(Math.trunc(offset));
-    if (moved < 0n || moved >= modulus) throw new CarryEscaped();
-    let v = moved;
-    for (let i = bytes.length - 1; i >= 0; i--) {
-      bytes[i] = Number(v & 0xffn);
-      v >>= 8n;
-    }
-  }
+  if (offset !== 0) applyOffsetToTail(bytes, offset);
   return bytes.subarray(Math.max(0, bytes.length - count));
 }

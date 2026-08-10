@@ -1448,3 +1448,57 @@ test('the head and tail shown in the coordinate lane are the real address', asyn
     );
   }
 });
+
+test('a patch over a loaded base equals materialising and stepping it', async () => {
+  const { tailPatchFromBytes, patchByteCount, PATCH_PIXELS } = await import('../src/core/offset.ts');
+  // The foreign path: the base is bytes already in hand rather than a seed, and
+  // the offset must land in exactly the same place.
+  for (const bpc of [8, 16] as const) {
+    const format = tiny(bpc);
+    const total = format.resolution.width * format.resolution.height;
+    const bpp = format.depth.bytesPerPixel;
+
+    const loaded = Uint8Array.from({ length: addressBytes(format) }, () => (Math.random() * 256) | 0);
+    const tailCount = patchByteCount(format);
+    assert.equal(tailCount, Math.min(PATCH_PIXELS, total) * bpp);
+
+    for (const offset of [1, -1, 777, -777, 9008, 16777216]) {
+      const truth = loaded.slice();
+      bumpAddress(truth, offset);
+
+      const p = tailPatchFromBytes(format, loaded.subarray(loaded.length - tailCount), offset)!;
+      for (let k = 0; k < p.count; k++) {
+        const i = p.firstPixel + k;
+        const o = i * bpp;
+        const [r, g, b] =
+          bpc === 16
+            ? [(truth[o] << 8) | truth[o + 1], (truth[o + 2] << 8) | truth[o + 3], (truth[o + 4] << 8) | truth[o + 5]]
+            : [truth[o], truth[o + 1], truth[o + 2]];
+        assert.equal(p.values[k * 4], r, `offset ${offset} pixel ${i} red at ${bpc}bpc`);
+        assert.equal(p.values[k * 4 + 1], g);
+        assert.equal(p.values[k * 4 + 2], b);
+      }
+      // Nothing before the patch may have moved — that is what lets the texture
+      // stay untouched while the address walks.
+      for (let o = 0; o < p.firstPixel * bpp; o++) {
+        assert.equal(truth[o], loaded[o], `offset ${offset} disturbed byte ${o}`);
+      }
+    }
+  }
+});
+
+test('the residue carried alongside a walked base stays exact', async () => {
+  // The readout advances the decimal tail arithmetically rather than
+  // re-streaming the address; it must agree with the real thing.
+  const format = tiny(16);
+  const loaded = Uint8Array.from({ length: addressBytes(format) }, () => (Math.random() * 256) | 0);
+  const baseResidue = residueMod10e15(loaded);
+  const m = 1e15;
+
+  for (const offset of [1, 777, -5, 9008, -1000000]) {
+    const truth = loaded.slice();
+    bumpAddress(truth, offset);
+    const carried = (((baseResidue + (offset % m)) % m) + m) % m;
+    assert.equal(carried, residueMod10e15(truth), `residue after ${offset}`);
+  }
+});

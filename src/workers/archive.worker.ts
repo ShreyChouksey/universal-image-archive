@@ -32,6 +32,7 @@ import type { ArchiveFormat } from '../core/format';
 import { encodePng } from '../core/png';
 import { type Seed } from '../core/philox';
 import { directionOfTexel } from '../core/sphere';
+import { PATCH_PIXELS } from '../core/offset';
 import { encodeAddress, fillSurroundFromArchive, toTexture, type LowBits } from '../core/raster';
 
 export type FitMode = 'cover' | 'contain' | 'stretch';
@@ -120,12 +121,20 @@ function currentReadout() {
   if (!readoutCache) {
     readoutCache = { residue: residueMod10e15(bytes), digits: decimalDigitCount(bytes) };
   }
+  // The head, the tail and the residue are everything the main thread needs to
+  // describe any nearby address itself: a step only moves the tail, and the
+  // residue of base+delta is (residue+delta) mod 10^15 exactly. Handing these
+  // over once is what lets a loaded address be walked without asking again.
+  const tailCount = Math.min(bytes.length, PATCH_PIXELS * current.format.depth.bytesPerPixel);
   return {
     head: hexSlice(bytes, 0, 16),
     tail: hexSlice(bytes, Math.max(0, bytes.length - 16), 16),
     bytes: bytes.length,
     digitCount: readoutCache.digits,
     trailingDecimal: String(readoutCache.residue).padStart(15, '0').slice(-12),
+    residue: readoutCache.residue,
+    headBytes: bytes.slice(0, Math.min(16, bytes.length)),
+    tailBytes: bytes.slice(bytes.length - tailCount),
   };
 }
 

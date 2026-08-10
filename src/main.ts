@@ -54,13 +54,27 @@ const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) 
 // State
 // ---------------------------------------------------------------------------
 
+/**
+ * What the worker's single address buffer currently holds.
+ *
+ * 'seed' is an address materialised from a coordinate, `offset` steps away from
+ * it — offset 0 means the coordinate on the bench genuinely names these bytes.
+ * 'foreign' is an address with no coordinate at all: a located photograph, an
+ * opened file, a plate. Tracking this explicitly is what stops the interface
+ * from ever showing a coordinate as if it named a picture it does not, and from
+ * quietly destroying a loaded image when the user travels the coordinate lane.
+ */
+type Held =
+  | { kind: 'none' }
+  | { kind: 'seed'; seed: Seed; offset: number }
+  | { kind: 'foreign'; label: string };
+
 interface State {
   format: ArchiveFormat;
   seed: Seed;
   /** 'seed' renders from the coordinate; 'address' renders an uploaded texture. */
   mode: 'seed' | 'address';
-  /** True once the current image's address exists in the worker. */
-  resolved: boolean;
+  held: Held;
   playing: boolean;
 }
 
@@ -68,9 +82,31 @@ const state: State = {
   format: DEFAULT_FORMAT,
   seed: randomSeed(),
   mode: 'seed',
-  resolved: false,
+  held: { kind: 'none' },
   playing: false,
 };
+
+const sameSeed = (a: Seed, b: Seed): boolean =>
+  a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
+
+/** True when the worker's bytes are exactly the image on the stage. */
+function workerMatchesStage(): boolean {
+  if (state.mode === 'address') return state.held.kind !== 'none';
+  return (
+    state.held.kind === 'seed' && state.held.offset === 0 && sameSeed(state.held.seed, state.seed)
+  );
+}
+
+/** True when the coordinate on the bench genuinely names the picture on the stage. */
+function coordinateNamesStage(): boolean {
+  if (state.mode === 'seed') return true;
+  return (
+    state.held.kind === 'seed' && state.held.offset === 0 && sameSeed(state.held.seed, state.seed)
+  );
+}
+
+const escapeHtml = (text: string): string =>
+  text.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
 const client = new ArchiveClient();
 let renderer: Renderer;
@@ -199,6 +235,23 @@ function setGeometry(geometry: Geometry): void {
   applyFormat();
 }
 
+/**
+ * Keeps the chrome honest about which lane the stage is showing.
+ *
+ * When the picture on the stage has no coordinate, the coordinate field dims
+ * and says so, the transport note explains what the arrows will actually do,
+ * and Copy stops pretending the link reproduces the view.
+ */
+function updateLaneUI(): void {
+  const stale = !coordinateNamesStage();
+  $<HTMLInputElement>('seedInput').dataset.stale = String(stale);
+  $('coordNote').hidden = !stale;
+  $('transportNote').textContent =
+    state.mode === 'address'
+      ? 'This picture sits at an address, not a coordinate. ← → travel the coordinate lane; the picture stays loaded, with a way back beside the address.'
+      : '± 1 moves to the neighbouring image in the archive.';
+}
+
 function renderSeed(): void {
   const input = $<HTMLInputElement>('seedInput');
   if (document.activeElement !== input) input.value = seedToHex(state.seed);
@@ -207,12 +260,25 @@ function renderSeed(): void {
 
 function renderAddressPlaceholder(): void {
   const cap = capacity();
-  $('addressReadout').innerHTML = cap.materialisable
+  let html = cap.materialisable
     ? '<span class="dim">not materialised —</span> <button class="ghost" type="button" id="materialise">resolve</button>'
     : `<span class="dim">too large to resolve on this GPU</span>`;
+
+  // A loaded image parked while the user travels the coordinate lane. The way
+  // back — the whole point of parking it rather than destroying it.
+  if (state.mode === 'seed' && state.held.kind === 'foreign') {
+    html +=
+      `<br /><span class="dim">still loaded: ${escapeHtml(state.held.label)} —</span> ` +
+      '<button class="ghost" type="button" id="heldReturn">return to it</button> ' +
+      '<button class="ghost" type="button" id="heldDiscard">discard</button>';
+  }
+  $('addressReadout').innerHTML = html;
+
   if (cap.materialisable) {
     $('materialise').addEventListener('click', () => void resolveAddress());
   }
+  document.getElementById('heldReturn')?.addEventListener('click', () => void returnToHeld());
+  document.getElementById('heldDiscard')?.addEventListener('click', () => void discardHeld());
   for (const id of ['stepUp', 'stepDown', 'exportPng', 'exportAddress', 'locate'] as const) {
     const el = document.getElementById(id) as HTMLButtonElement | null;
     if (!el) continue;
@@ -242,13 +308,46 @@ async function renderAddressReadout(): Promise<void> {
 function setSeed(seed: Seed, { pushUrl = true } = {}): void {
   state.seed = seed;
   state.mode = 'seed';
-  state.resolved = false;
   addressTexels = null;
   renderer.setAddressTexture(1, 1, null);
+
+  // A seed-derived address at offset 0 is trivially recomputable, so drop it.
+  // Anything else is work or luck that must not be destroyed by travel: a
+  // stepped address becomes a parked foreign one, and a located image stays
+  // parked until deliberately replaced or discarded.
+  if (state.held.kind === 'seed') {
+    if (state.held.offset === 0) {
+      state.held = { kind: 'none' };
+      void client.release();
+    } else {
+      state.held = { kind: 'foreign', label: 'a stepped address' };
+    }
+  }
+
   renderSeed();
   renderAddressPlaceholder();
+  updateLaneUI();
   requestDraw();
   if (pushUrl) syncUrl();
+}
+
+/** Bring a parked image back onto the stage. The worker never let go of it. */
+async function returnToHeld(): Promise<void> {
+  if (state.held.kind === 'none') return;
+  await adoptWorkerAddress();
+  // The readout IS the address section now — no placeholder after it, or the
+  // chip's scaffolding would paint over the very readout the return restored.
+  await renderAddressReadout();
+  updateLaneUI();
+  toast('Returned to the loaded image');
+}
+
+async function discardHeld(): Promise<void> {
+  if (state.held.kind === 'none') return;
+  state.held = { kind: 'none' };
+  await client.release();
+  renderAddressPlaceholder();
+  updateLaneUI();
 }
 
 async function resolveAddress(): Promise<void> {
@@ -259,11 +358,28 @@ async function resolveAddress(): Promise<void> {
     toast(cap.reason);
     return;
   }
+  if (state.held.kind === 'foreign') {
+    // The worker has one buffer, so materialising this coordinate's address
+    // evicts the loaded image. That must be the user's decision, not a side
+    // effect they discover afterwards.
+    const ok = window.confirm(
+      `Working out this coordinate's address will discard the loaded image (${state.held.label}). Continue?`,
+    );
+    if (!ok) return;
+  }
   busy(true, 'Materialising address', 0);
   try {
     await client.materialise(state.format, state.seed, onProgress);
-    state.resolved = true;
+    state.held = { kind: 'seed', seed: Uint32Array.from(state.seed) as Seed, offset: 0 };
+    // The seed lane already shows exactly these bytes, so the stage stays put.
+    if (state.mode === 'address') {
+      state.mode = 'seed';
+      addressTexels = null;
+      renderer.setAddressTexture(1, 1, null);
+      requestDraw();
+    }
     await renderAddressReadout();
+    updateLaneUI();
   } catch (error) {
     toast(error instanceof Error ? error.message : 'Could not materialise the address');
   } finally {
@@ -277,15 +393,19 @@ async function resolveAddress(): Promise<void> {
  * else, so the picture is, to the eye, unchanged — and is a different image.
  */
 async function stepAddress(delta: number): Promise<void> {
-  if (!state.resolved) {
+  if (!workerMatchesStage()) {
     await resolveAddress();
-    if (!state.resolved) return;
+    if (!workerMatchesStage()) return;
   }
   busy(true, 'Stepping address', 0.5);
   try {
     await client.step(delta);
+    if (state.held.kind === 'seed') {
+      state.held = { ...state.held, offset: state.held.offset + delta };
+    }
     await adoptWorkerAddress();
     await renderAddressReadout();
+    updateLaneUI();
     toast(delta > 0 ? 'Advanced one address' : 'Retreated one address');
   } finally {
     busy(false);
@@ -334,11 +454,12 @@ function applyFormat(): void {
   reader = null;
   stage.setFormat(state.format);
   renderScale();
-  state.resolved = false;
+  state.held = { kind: 'none' };
   addressTexels = null;
   renderer.setAddressTexture(1, 1, null);
   state.mode = 'seed';
   renderAddressPlaceholder();
+  updateLaneUI();
   void client.release();
   requestDraw();
   syncUrl();
@@ -407,7 +528,7 @@ function searchOptions(): SearchOptions {
 async function renderAddressPanel(): Promise<void> {
   const empty = $('addressEmpty');
   const loaded = $('addressLoaded');
-  if (!state.resolved) {
+  if (state.held.kind === 'none') {
     empty.hidden = false;
     loaded.hidden = true;
     return;
@@ -532,9 +653,10 @@ async function mintPlate(): Promise<void> {
       $<HTMLSelectElement>('plateLayout').value,
       onProgress,
     );
+    state.held = { kind: 'foreign', label: `plate ${report.statement}` };
     await adoptWorkerAddress();
-    state.resolved = true;
     await renderAddressReadout();
+    updateLaneUI();
     renderPlateFacts(report);
     renderVerdict(await client.verify(state.format));
     $('plateStatus').textContent =
@@ -590,9 +712,10 @@ async function inspectPng(file: File): Promise<void> {
 
     const bytes = decoded.pixels.slice();
     await client.adopt(state.format, bytes.buffer);
+    state.held = { kind: 'foreign', label: file.name };
     await adoptWorkerAddress();
-    state.resolved = true;
     await renderAddressReadout();
+    updateLaneUI();
     renderVerdict(await client.verify(state.format));
     $('searchStatus').textContent = `Read ${file.name} at ${decoded.bpc} bits per channel.`;
   } catch (error) {
@@ -636,9 +759,10 @@ async function openAddressFile(file: File): Promise<void> {
     // transfer to the worker hands over a buffer of exactly the right length.
     const bytes = unpacked.bytes.slice();
     await client.adopt(state.format, bytes.buffer);
+    state.held = { kind: 'foreign', label: file.name };
     await adoptWorkerAddress();
-    state.resolved = true;
     await renderAddressReadout();
+    updateLaneUI();
     $('searchStatus').textContent = `Opened ${file.name}.`;
     toast('Address opened');
   } catch (error) {
@@ -655,9 +779,10 @@ async function locate(): Promise<void> {
   try {
     const bitmap = await createImageBitmap(pendingFile);
     await client.search(state.format, bitmap, searchOptions(), state.seed, onProgress);
+    state.held = { kind: 'foreign', label: pendingFile.name };
     await adoptWorkerAddress();
-    state.resolved = true;
     await renderAddressReadout();
+    updateLaneUI();
     $('searchStatus').textContent =
       'Located. This address has always held this image; the archive has simply never been asked for it before.';
     toast('Located in the archive');
@@ -683,8 +808,8 @@ function download(blob: Blob, filename: string): void {
 }
 
 async function exportPng(): Promise<void> {
-  if (!state.resolved) await resolveAddress();
-  if (!state.resolved) return;
+  if (!workerMatchesStage()) await resolveAddress();
+  if (!workerMatchesStage()) return;
   busy(true, 'Encoding PNG', 0);
   try {
     const { blob, filename } = await client.png(onProgress);
@@ -698,8 +823,8 @@ async function exportPng(): Promise<void> {
 }
 
 async function exportAddress(): Promise<void> {
-  if (!state.resolved) await resolveAddress();
-  if (!state.resolved) return;
+  if (!workerMatchesStage()) await resolveAddress();
+  if (!workerMatchesStage()) return;
   const { blob, filename } = await client.addressFile();
   download(blob, filename);
   toast(`Address written · ${bytesHuman(blob.size)}`);
@@ -707,8 +832,8 @@ async function exportAddress(): Promise<void> {
 
 /** The address as readable hexadecimal — exact, and instant, because hex is the bytes. */
 async function exportHex(): Promise<void> {
-  if (!state.resolved) await resolveAddress();
-  if (!state.resolved) return;
+  if (!workerMatchesStage()) await resolveAddress();
+  if (!workerMatchesStage()) return;
   busy(true, 'Writing hexadecimal', 0);
   try {
     const { blob, filename } = await client.hexFile(onProgress);
@@ -728,8 +853,8 @@ async function exportHex(): Promise<void> {
  * reads as a hang.
  */
 async function exportDecimal(): Promise<void> {
-  if (!state.resolved) await resolveAddress();
-  if (!state.resolved) return;
+  if (!workerMatchesStage()) await resolveAddress();
+  if (!workerMatchesStage()) return;
 
   const scale = archiveScale(state.format);
   if (scale.bytes > BIGINT_MAX_BYTES) {
@@ -885,7 +1010,11 @@ async function boot(): Promise<void> {
 
   $('copySeed').addEventListener('click', async () => {
     await navigator.clipboard.writeText(location.href);
-    toast('Link copied');
+    toast(
+      coordinateNamesStage()
+        ? 'Link copied'
+        : 'Link copied — it names the coordinate lane, not this picture. Export the address to carry the picture.',
+    );
   });
 
   // Transport
@@ -1020,6 +1149,7 @@ async function boot(): Promise<void> {
   renderScale();
   renderSeed();
   renderAddressPlaceholder();
+  updateLaneUI();
   updateLowBitsHint();
   updateSearchControls();
   syncUrl();

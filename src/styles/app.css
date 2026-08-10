@@ -508,6 +508,15 @@ kbd {
   border-color: var(--ch-r);
 }
 
+/*
+ * The picture on the stage has no coordinate: the field stays usable as an
+ * entry point into the lane, but must stop reading as a name for the image.
+ */
+.entry__seed[data-stale='true'] {
+  color: var(--ink-3);
+  border-style: dashed;
+}
+
 .entry__address {
   display: flex;
   flex-direction: column;

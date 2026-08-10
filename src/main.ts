@@ -561,6 +561,15 @@ async function renderAddressReadout(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 function setSeed(seed: Seed, { pushUrl = true, offset = 0 } = {}): void {
+  if (state.held.kind !== 'none') {
+    const origin = state.held.kind === 'foreign' ? state.held.origin : state.held.seed;
+    const targetOffset = state.held.kind === 'seed' ? state.held.offset : 0;
+    if (sameSeed(seed, origin) && offset === targetOffset) {
+      void returnToHeld();
+      return;
+    }
+  }
+
   const wasAddressMode = state.mode === 'address';
   state.seed = seed;
   state.offset = offset;

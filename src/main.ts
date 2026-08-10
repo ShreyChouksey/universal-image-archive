@@ -1645,11 +1645,7 @@ async function boot(): Promise<void> {
   });
 
   function stepCoordinate(delta: number): void {
-    if (state.mode === 'seed') {
-      setSeed(seedAdd(state.seed, delta));
-    } else {
-      walk(delta);
-    }
+    setSeed(seedAdd(state.seed, delta));
   }
 
   // Transport
@@ -1659,8 +1655,8 @@ async function boot(): Promise<void> {
   $('stepSize').addEventListener('change', updateLaneUI);
   $('stepSize').addEventListener('input', updateLaneUI);
   $('play').addEventListener('click', () => setPlaying(!state.playing));
-  $('stepUp').addEventListener('click', () => void stepAddress(stepSize()));
-  $('stepDown').addEventListener('click', () => void stepAddress(-stepSize()));
+  $('stepUp').addEventListener('click', () => walk(stepSize()));
+  $('stepDown').addEventListener('click', () => walk(-stepSize()));
 
   // Exports
   $('exportPng').addEventListener('click', () => void exportPng());
@@ -1786,8 +1782,8 @@ async function boot(): Promise<void> {
       case 'r': setSeed(randomSeed()); break;
       case 'arrowright': stepCoordinate(stepSize()); break;
       case 'arrowleft': stepCoordinate(-stepSize()); break;
-      case ']': void stepAddress(stepSize()); break;
-      case '[': void stepAddress(-stepSize()); break;
+      case ']': walk(stepSize()); break;
+      case '[': walk(-stepSize()); break;
       case ' ': e.preventDefault(); setPlaying(!state.playing); break;
       case 'f': stage.fit(); break;
       case '1': stage.actualSize(); break;

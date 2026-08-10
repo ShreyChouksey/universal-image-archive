@@ -509,7 +509,7 @@ kbd {
 
 .bench {
   display: grid;
-  grid-template-columns: minmax(280px, 1.6fr) auto minmax(260px, 1fr);
+  grid-template-columns: minmax(320px, 1.4fr) auto minmax(340px, 1.2fr);
   border-top: 1px solid var(--rule);
   background: var(--panel);
   min-height: var(--bench-h);
@@ -713,7 +713,11 @@ kbd {
   display: grid;
   grid-template-columns: 1fr 1fr;
   align-content: start;
-  gap: 10px 12px;
+  gap: 8px 12px;
+}
+
+.bench__format .field--full {
+  grid-column: 1 / -1;
 }
 
 .scale {

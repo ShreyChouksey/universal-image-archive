@@ -150,9 +150,13 @@ export function sampleSeed(
  * Adding one flips the least significant bit of the last pixel's blue channel:
  * the neighbouring image in the archive, indistinguishable to the eye and a
  * different picture by definition. Wraps at both ends.
+ *
+ * Returns the index of the lowest byte it touched, so callers can refresh only
+ * the part of the picture that actually changed — for a small step that is the
+ * last row rather than all forty-seven megabytes.
  */
-export function bumpAddress(bytes: Uint8Array, delta: number): void {
-  if (delta === 0) return;
+export function bumpAddress(bytes: Uint8Array, delta: number): number {
+  if (delta === 0) return bytes.length;
   const negative = delta < 0;
   let mag = Math.abs(Math.trunc(delta));
   let i = bytes.length - 1;
@@ -170,6 +174,7 @@ export function bumpAddress(bytes: Uint8Array, delta: number): void {
       mag = Math.floor(mag / 256);
       i--;
     }
+    return i + 1;
   } else {
     let carry = 0;
     while (i >= 0 && (mag > 0 || carry)) {
@@ -183,6 +188,7 @@ export function bumpAddress(bytes: Uint8Array, delta: number): void {
       mag = Math.floor(mag / 256);
       i--;
     }
+    return i + 1;
   }
 }
 

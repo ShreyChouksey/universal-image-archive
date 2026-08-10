@@ -13,11 +13,13 @@
 
 import {
   BIGINT_MAX_BYTES,
+  DECIMAL_MODULUS,
   bumpAddress,
+  decimalDigitCount,
   hexSlice,
   materialiseSeed,
   packAddressFile,
-  readAddress,
+  residueMod10e15,
 } from '../core/address';
 import {
   composePlate,
@@ -61,6 +63,7 @@ export type Request =
   | { id: number; kind: 'importDecimal'; text: string; formats: ArchiveFormat[] }
   | { id: number; kind: 'step'; delta: number }
   | { id: number; kind: 'slice'; from: number; count: number }
+  | { id: number; kind: 'textureRows'; y0: number; rows: number }
   | { id: number; kind: 'entropy' }
   | { id: number; kind: 'decimal' }
   | { id: number; kind: 'hexFile' }
@@ -78,12 +81,14 @@ export type Response =
   | { id: number; kind: 'error'; message: string }
   | { id: number; kind: 'progress'; label: string; fraction: number }
   | { id: number; kind: 'texture'; width: number; height: number; data: Uint16Array }
-  | { id: number; kind: 'readout'; readout: ReturnType<typeof readAddress> }
+  | { id: number; kind: 'readout'; readout: ReturnType<typeof currentReadout> }
   | { id: number; kind: 'blob'; blob: Blob; filename: string }
   | { id: number; kind: 'plate'; report: PlateReport }
   | { id: number; kind: 'verdict'; verdict: PlateVerdict }
   | { id: number; kind: 'slice'; from: number; bytes: Uint8Array }
   | { id: number; kind: 'entropy'; report: EntropyReport }
+  | { id: number; kind: 'stepped'; changedFrom: number }
+  | { id: number; kind: 'textureRows'; y0: number; rows: number; data: Uint16Array }
   | { id: number; kind: 'imported'; format: ArchiveFormat };
 
 export interface EntropyReport {
@@ -97,6 +102,38 @@ export interface EntropyReport {
 }
 
 let current: { format: ArchiveFormat; bytes: Uint8Array } | null = null;
+
+/**
+ * The two figures in the readout that cost a pass over the whole address.
+ *
+ * Recomputing them after every step meant streaming 47 MB to move one byte,
+ * which is most of what made stepping feel heavy. Both can be carried forward
+ * instead: the residue mod 10^15 of address+delta is (residue+delta) mod 10^15
+ * exactly, and the digit count cannot change unless the carry reached the
+ * leading bytes. When it does reach them, the cache is dropped and rebuilt.
+ */
+let readoutCache: { residue: number; digits: number } | null = null;
+
+function currentReadout() {
+  if (!current) throw new Error('no address is loaded');
+  const bytes = current.bytes;
+  if (!readoutCache) {
+    readoutCache = { residue: residueMod10e15(bytes), digits: decimalDigitCount(bytes) };
+  }
+  return {
+    head: hexSlice(bytes, 0, 16),
+    tail: hexSlice(bytes, Math.max(0, bytes.length - 16), 16),
+    bytes: bytes.length,
+    digitCount: readoutCache.digits,
+    trailingDecimal: String(readoutCache.residue).padStart(15, '0').slice(-12),
+  };
+}
+
+/** Replaces the loaded address, dropping anything derived from the old one. */
+function load(format: ArchiveFormat, bytes: Uint8Array): void {
+  current = { format, bytes };
+  readoutCache = null;
+}
 
 const post = (msg: Response, transfer: Transferable[] = []) =>
   (self as unknown as Worker).postMessage(msg, transfer);
@@ -283,7 +320,7 @@ self.onmessage = async (event: MessageEvent<Request>) => {
             post({ id: req.id, kind: 'progress', label: 'Materialising address', fraction: from / total });
           }
         }
-        current = { format: req.format, bytes };
+        load(req.format, bytes);
         post({ id: req.id, kind: 'ok' });
         break;
       }
@@ -312,13 +349,13 @@ self.onmessage = async (event: MessageEvent<Request>) => {
         if (req.options.fill === 'archive') {
           fillSurroundFromArchive(req.format, Uint32Array.from(req.seed) as Seed, bytes, mask);
         }
-        current = { format: req.format, bytes };
+        load(req.format, bytes);
         post({ id: req.id, kind: 'ok' });
         break;
       }
 
       case 'adopt': {
-        current = { format: req.format, bytes: new Uint8Array(req.bytes) };
+        load(req.format, new Uint8Array(req.bytes));
         post({ id: req.id, kind: 'ok' });
         break;
       }
@@ -335,7 +372,7 @@ self.onmessage = async (event: MessageEvent<Request>) => {
         );
         // A plate is an ordinary loaded address, so export, step and the loupe
         // all keep working on it without knowing what it is.
-        current = { format: req.format, bytes };
+        load(req.format, bytes);
         post({ id: req.id, kind: 'plate', report });
         break;
       }
@@ -497,15 +534,54 @@ self.onmessage = async (event: MessageEvent<Request>) => {
         for (let i = 0; i < hex.length / 2; i++) {
           out[start + i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
         }
-        current = { format: fit, bytes: out };
+        load(fit, out);
         post({ id: req.id, kind: 'imported', format: fit });
         break;
       }
 
       case 'step': {
         if (!current) throw new Error('no address is loaded');
-        bumpAddress(current.bytes, req.delta);
-        post({ id: req.id, kind: 'ok' });
+        // Report how far the carry reached, so the caller can repaint just that
+        // much instead of the whole picture.
+        const changedFrom = bumpAddress(current.bytes, req.delta);
+        if (readoutCache) {
+          if (changedFrom <= 16) {
+            // The carry reached the leading bytes, so the digit count may have
+            // moved and the address may have wrapped. Rebuild from scratch.
+            readoutCache = null;
+          } else {
+            const m = DECIMAL_MODULUS;
+            readoutCache.residue = (((readoutCache.residue + (req.delta % m)) % m) + m) % m;
+          }
+        }
+        post({ id: req.id, kind: 'stepped', changedFrom });
+        break;
+      }
+
+      case 'textureRows': {
+        if (!current) throw new Error('no address is loaded');
+        const { width } = current.format.resolution;
+        const bpp = current.format.depth.bytesPerPixel;
+        const y0 = Math.max(0, Math.min(current.format.resolution.height - 1, req.y0));
+        const rows = Math.max(1, Math.min(current.format.resolution.height - y0, req.rows));
+        const data = new Uint16Array(width * rows * 4);
+        const wide = current.format.depth.bpc === 16;
+        for (let i = 0; i < width * rows; i++) {
+          const s = (y0 * width + i) * bpp;
+          const d = i * 4;
+          if (wide) {
+            data[d] = (current.bytes[s] << 8) | current.bytes[s + 1];
+            data[d + 1] = (current.bytes[s + 2] << 8) | current.bytes[s + 3];
+            data[d + 2] = (current.bytes[s + 4] << 8) | current.bytes[s + 5];
+            data[d + 3] = 65535;
+          } else {
+            data[d] = current.bytes[s];
+            data[d + 1] = current.bytes[s + 1];
+            data[d + 2] = current.bytes[s + 2];
+            data[d + 3] = 255;
+          }
+        }
+        post({ id: req.id, kind: 'textureRows', y0, rows, data }, [data.buffer]);
         break;
       }
 
@@ -526,8 +602,7 @@ self.onmessage = async (event: MessageEvent<Request>) => {
       }
 
       case 'readout': {
-        if (!current) throw new Error('no address is loaded');
-        post({ id: req.id, kind: 'readout', readout: readAddress(current.bytes) });
+        post({ id: req.id, kind: 'readout', readout: currentReadout() });
         break;
       }
 
@@ -565,6 +640,7 @@ self.onmessage = async (event: MessageEvent<Request>) => {
 
       case 'release': {
         current = null;
+        readoutCache = null;
         post({ id: req.id, kind: 'ok' });
         break;
       }

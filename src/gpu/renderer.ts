@@ -53,6 +53,14 @@ export interface Renderer {
   resize(widthPx: number, heightPx: number): void;
   /** Upload RGBA16 pixel data for address mode, or null to release it. */
   setAddressTexture(width: number, height: number, rgba16: Uint16Array | null): void;
+  /**
+   * Replace a horizontal band of the address texture.
+   *
+   * Stepping an address by one changes a single byte, and re-uploading sixty-six
+   * megabytes to repaint it is what made stepping feel sluggish. This uploads
+   * only the rows that moved.
+   */
+  updateAddressRows(y0: number, rows: number, rgba16: Uint16Array): void;
   draw(input: RenderInput, view: ViewState): void;
   /**
    * Reads PROBE x PROBE pixels back off the GPU as RGB triples, row-major, top
@@ -185,6 +193,7 @@ async function createWebGPU(canvas: HTMLCanvasElement): Promise<Renderer | null>
     format: 'rgba16uint',
     usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
   });
+  let addressWidth = 0;
   let bindGroup = makeBindGroup();
 
   function makeBindGroup(): GPUBindGroup {
@@ -217,6 +226,7 @@ async function createWebGPU(canvas: HTMLCanvasElement): Promise<Renderer | null>
     },
     setAddressTexture(width, height, rgba16) {
       addressTexture.destroy();
+      addressWidth = rgba16 ? width : 0;
       if (!rgba16) {
         addressTexture = device.createTexture({
           size: [1, 1],
@@ -237,6 +247,15 @@ async function createWebGPU(canvas: HTMLCanvasElement): Promise<Renderer | null>
         );
       }
       bindGroup = makeBindGroup();
+    },
+    updateAddressRows(y0, rows, rgba16) {
+      if (!addressWidth) return;
+      device.queue.writeTexture(
+        { texture: addressTexture, origin: { x: 0, y: y0, z: 0 } },
+        rgba16 as unknown as GPUAllowSharedBufferSource,
+        { bytesPerRow: addressWidth * 8, rowsPerImage: rows },
+        { width: addressWidth, height: rows },
+      );
     },
     draw(input, view) {
       fillUniforms(scratchF32, scratchU32, input, view, viewW, viewH, isSphere(input));
@@ -440,6 +459,7 @@ function createWebGL2(canvas: HTMLCanvasElement): Renderer | null {
 
   let viewW = canvas.width || 1;
   let viewH = canvas.height || 1;
+  let glAddressWidth = 0;
 
   return {
     capabilities: {
@@ -464,7 +484,17 @@ function createWebGL2(canvas: HTMLCanvasElement): Renderer | null {
       }
       gl.viewport(0, 0, viewW, viewH);
     },
+    updateAddressRows(y0, rows, rgba16) {
+      if (!glAddressWidth) return;
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 2);
+      gl.texSubImage2D(
+        gl.TEXTURE_2D, 0, 0, y0, glAddressWidth, rows,
+        gl.RGBA_INTEGER, gl.UNSIGNED_SHORT, rgba16,
+      );
+    },
     setAddressTexture(width, height, rgba16) {
+      glAddressWidth = rgba16 ? width : 0;
       gl.bindTexture(gl.TEXTURE_2D, texture);
       if (!rgba16) {
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16UI, 1, 1, 0, gl.RGBA_INTEGER, gl.UNSIGNED_SHORT, new Uint16Array(4));

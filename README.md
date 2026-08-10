@@ -182,6 +182,35 @@ A generator that fails at precisely the rate randomness predicts is a correct on
 Address panel recomputes entropy on whatever is loaded, so this is checkable on the picture
 in front of you rather than taken on faith.
 
+## Walking, and coming back
+
+The rule the whole thing rests on: **walk N steps, walk back N, and you are exactly where
+you were** — same pixels, same address, same coordinate.
+
+The arrows walk whichever lane you are actually in. A picture reached through search lives
+at an address and has no coordinate, so from there ← → move the *address*; while browsing
+coordinates they move the *coordinate*. Moving the coordinate from an address would not be
+travel at all — it is a jump into a different space, and coming back returns the number
+without the picture. The step box between the arrows sets the distance, so the invariant is
+testable at any size.
+
+Both lanes are exact modular groups, verified against BigInt: `bumpAddress` over base 256
+and `seedAdd` over 2¹²⁸, both carrying and borrowing correctly and both wrapping cleanly at
+either end. `+100` is bit-identical to a hundred `+1`s.
+
+Crossing between the lanes is reversible too. Teleporting away — Random, a typed
+coordinate, Traverse — *parks* the loaded picture rather than destroying it, and a chip on
+the stage brings it back along with the coordinate it was parked from, so the arrows resume
+meaning what they meant before you left. Anything that would spend a loaded picture (a grid,
+depth or geometry change; resolving the coordinate's own address) asks first.
+
+Stepping is a banded repaint: `bumpAddress` reports how far its carry reached, and only
+those rows are re-uploaded. A step of one touches one row instead of sixty-six megabytes,
+which took a step from ~300 ms to **6 ms**. Presses are coalesced rather than dropped, so
+twelve fast clicks move exactly twelve. The readout's decimal tail is carried forward
+arithmetically — the residue of address+delta is (residue+delta) mod 10¹⁵ exactly — instead
+of re-streaming 47 MB per step.
+
 ## Plane and sphere
 
 A plane grid is a **window**: the address is everything visible through a frame pointed one

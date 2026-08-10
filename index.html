@@ -96,18 +96,33 @@
 
         <div class="bench__transport">
           <div class="transport__row">
-            <button class="key" type="button" id="prevSeed" title="Previous coordinate (←)">←</button>
+            <button class="key" type="button" id="prevSeed" title="Back (←)">←</button>
+            <input
+              class="key key--step"
+              id="stepSize"
+              type="text"
+              inputmode="numeric"
+              value="1"
+              aria-label="How far each step moves"
+              title="How far each step moves"
+            />
+            <button class="key" type="button" id="nextSeed" title="Forward (→)">→</button>
+          </div>
+          <div class="transport__row">
             <button class="key key--wide" type="button" id="randomSeed" title="Random coordinate (R)">
               Random
             </button>
-            <button class="key" type="button" id="nextSeed" title="Next coordinate (→)">→</button>
-          </div>
-          <div class="transport__row">
             <button class="key key--wide" type="button" id="play" title="Traverse (space)">
               Traverse
             </button>
-            <button class="key" type="button" id="stepDown" title="Address − 1 ([)">−1</button>
-            <button class="key" type="button" id="stepUp" title="Address + 1 (])">+1</button>
+          </div>
+          <div class="transport__row">
+            <button class="key key--wide" type="button" id="stepDown" title="Address − step ([)">
+              − address
+            </button>
+            <button class="key key--wide" type="button" id="stepUp" title="Address + step (])">
+              + address
+            </button>
           </div>
           <p class="transport__note" id="transportNote">
             ± 1 moves to the neighbouring image in the archive.

@@ -151,9 +151,18 @@ export class ArchiveClient {
     return res;
   }
 
-  /** Move the loaded address by `delta`, as an integer. */
-  async step(delta: number): Promise<void> {
-    await this.#send({ kind: 'step', delta });
+  /** Move the loaded address by `delta`; returns the lowest byte index changed. */
+  async step(delta: number): Promise<number> {
+    const res = await this.#send({ kind: 'step', delta });
+    if (res.kind !== 'stepped') throw new Error('unexpected response');
+    return res.changedFrom;
+  }
+
+  /** A horizontal band of the loaded address as RGBA16 texels. */
+  async textureRows(y0: number, rows: number): Promise<{ y0: number; rows: number; data: Uint16Array }> {
+    const res = await this.#send({ kind: 'textureRows', y0, rows });
+    if (res.kind !== 'textureRows') throw new Error('unexpected response');
+    return res;
   }
 
   async texture(): Promise<{ width: number; height: number; data: Uint16Array }> {

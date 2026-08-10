@@ -1258,3 +1258,89 @@ test('generator invariants hold on a custom grid too', () => {
     assert.equal((bytes[i * 6] << 8) | bytes[i * 6 + 1], s.r);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Navigation reversibility — the invariant the whole archive rests on
+// ---------------------------------------------------------------------------
+
+test('walking the address out N and back N returns the exact bytes, at every N', () => {
+  // "Move 1 or 100 or 9008 forward or backward and return, and find my image."
+  for (const n of [1, 2, 7, 100, 9008, 1_000_000, 2 ** 32, 2 ** 45]) {
+    const original = Uint8Array.from({ length: 64 }, () => (Math.random() * 256) | 0);
+    const bytes = original.slice();
+
+    bumpAddress(bytes, n);
+    assert.notDeepEqual(bytes, original, `step of ${n} must actually move`);
+    bumpAddress(bytes, -n);
+    assert.deepEqual(bytes, original, `+${n} then -${n} must be the identity`);
+
+    // And the other order, which is a different code path (borrow before carry).
+    bumpAddress(bytes, -n);
+    bumpAddress(bytes, n);
+    assert.deepEqual(bytes, original, `-${n} then +${n} must be the identity`);
+  }
+});
+
+test('many small steps equal one large step', () => {
+  const original = Uint8Array.from({ length: 40 }, () => (Math.random() * 256) | 0);
+  const byOnes = original.slice();
+  for (let i = 0; i < 300; i++) bumpAddress(byOnes, 1);
+  const byLeap = original.slice();
+  bumpAddress(byLeap, 300);
+  assert.deepEqual(byOnes, byLeap, '300 single steps must land where one 300-step lands');
+});
+
+test('address walking is reversible across the wrap at both ends', () => {
+  const LEN = 8;
+  // At zero, stepping back wraps to all 0xFF; stepping forward must return.
+  const atZero = new Uint8Array(LEN);
+  bumpAddress(atZero, -1);
+  assert.deepEqual(atZero, new Uint8Array(LEN).fill(0xff));
+  bumpAddress(atZero, 1);
+  assert.deepEqual(atZero, new Uint8Array(LEN));
+
+  // At the maximum, forward wraps to zero and back must return.
+  const atMax = new Uint8Array(LEN).fill(0xff);
+  bumpAddress(atMax, 1);
+  assert.deepEqual(atMax, new Uint8Array(LEN));
+  bumpAddress(atMax, -1);
+  assert.deepEqual(atMax, new Uint8Array(LEN).fill(0xff));
+});
+
+test('bumpAddress reports a reach that covers every byte it changed', () => {
+  // The banded repaint trusts this: anything below the reported index must be
+  // untouched, or the picture and the number would disagree on screen.
+  for (let i = 0; i < 300; i++) {
+    const len = 24;
+    const original = Uint8Array.from({ length: len }, () => (Math.random() * 256) | 0);
+    const bytes = original.slice();
+    const delta = Math.floor((Math.random() - 0.5) * 2 ** 30);
+    const from = bumpAddress(bytes, delta);
+    for (let k = 0; k < Math.max(0, from); k++) {
+      assert.equal(bytes[k], original[k], `byte ${k} below the reported reach ${from} must be untouched`);
+    }
+  }
+  // A zero step reports the end, meaning nothing to repaint.
+  const none = new Uint8Array(10);
+  assert.equal(bumpAddress(none, 0), 10);
+});
+
+test('walking the coordinate out N and back N returns the exact coordinate', () => {
+  for (const n of [1, 2, 100, 9008, 2 ** 40]) {
+    const start = randomSeed();
+    const out = seedAdd(start, n);
+    assert.notEqual(seedToHex(out), seedToHex(start), `coordinate step of ${n} must move`);
+    assert.equal(seedToHex(seedAdd(out, -n)), seedToHex(start), `coordinate +${n} then -${n}`);
+  }
+  // And across the wrap at zero.
+  const zero = seedOf(0, 0, 0, 0);
+  assert.equal(seedToHex(seedAdd(seedAdd(zero, -1), 1)), seedToHex(zero));
+});
+
+test('traversing N coordinates is undone by one step of N', () => {
+  // What the Traverse readout promises when it halts.
+  const start = randomSeed();
+  let walked = start;
+  for (let i = 0; i < 250; i++) walked = seedAdd(walked, 1);
+  assert.equal(seedToHex(seedAdd(walked, -250)), seedToHex(start));
+});

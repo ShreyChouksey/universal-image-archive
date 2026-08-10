@@ -65,11 +65,17 @@ const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) 
  * opened file, a plate. Tracking this explicitly is what stops the interface
  * from ever showing a coordinate as if it named a picture it does not, and from
  * quietly destroying a loaded image when the user travels the coordinate lane.
+ *
+ * Both loaded variants remember where they came from, and that memory is what
+ * makes crossing between the lanes reversible. Without it, parking a picture,
+ * walking the coordinate lane and returning would leave the coordinate stranded
+ * wherever the walk ended — the arrows would then be moving a different lane on
+ * the way home than they moved on the way out, and the journey would not undo.
  */
 type Held =
   | { kind: 'none' }
   | { kind: 'seed'; seed: Seed; offset: number }
-  | { kind: 'foreign'; label: string };
+  | { kind: 'foreign'; label: string; origin: Seed };
 
 interface State {
   format: ArchiveFormat;
@@ -257,19 +263,21 @@ function updateLaneUI(): void {
   const stale = !coordinateNamesStage();
   $<HTMLInputElement>('seedInput').dataset.stale = String(stale);
   $('coordNote').hidden = !stale;
+  const step = stepSize();
+  const n = step.toLocaleString('en-US');
   $('transportNote').textContent =
     state.mode === 'address'
-      ? 'This picture sits at an address, not a coordinate. ← → travel the coordinate lane; the picture stays loaded, with a way back on the stage.'
-      : '± 1 moves to the neighbouring image in the archive.';
+      ? `← → walk this address by ${n}. Walk out and back the same distance and you are exactly where you were.`
+      : step === 1
+        ? '← → walk the coordinate lane. ± address steps to the neighbouring image — a single bit, invisible to the eye, a different picture.'
+        : `← → walk the coordinate lane by ${n}. ± address moves the address itself by ${n}.`;
 
   // The stage-level way back: shown exactly when a loaded image is parked out
   // of view behind the coordinate lane.
-  const parked = state.mode === 'seed' && state.held.kind === 'foreign';
+  const parked = state.mode === 'seed' && state.held.kind !== 'none';
   const chip = $('parkedChip');
   chip.hidden = !parked;
-  if (parked && state.held.kind === 'foreign') {
-    $('parkedLabel').textContent = `${state.held.label} is still loaded —`;
-  }
+  if (parked) $('parkedLabel').textContent = `${heldLabel()} is still loaded —`;
 }
 
 function renderSeed(): void {
@@ -286,9 +294,9 @@ function renderAddressPlaceholder(): void {
 
   // A loaded image parked while the user travels the coordinate lane. The way
   // back — the whole point of parking it rather than destroying it.
-  if (state.mode === 'seed' && state.held.kind === 'foreign') {
+  if (state.mode === 'seed' && state.held.kind !== 'none') {
     html +=
-      `<br /><span class="dim">still loaded: ${escapeHtml(state.held.label)} —</span> ` +
+      `<br /><span class="dim">still loaded: ${escapeHtml(heldLabel())} —</span> ` +
       '<button class="ghost" type="button" id="heldReturn">return to it</button> ' +
       '<button class="ghost" type="button" id="heldDiscard">discard</button>';
   }
@@ -332,22 +340,16 @@ function setSeed(seed: Seed, { pushUrl = true } = {}): void {
   addressTexels = null;
   renderer.setAddressTexture(1, 1, null);
 
-  // A seed-derived address at offset 0 is trivially recomputable, so drop it.
-  // Anything else is work or luck that must not be destroyed by travel: a
-  // stepped address becomes a parked foreign one, and a located image stays
-  // parked until deliberately replaced or discarded.
-  const parking = wasAddressMode && state.held.kind === 'foreign';
-  if (state.held.kind === 'seed') {
-    if (state.held.offset === 0) {
-      state.held = { kind: 'none' };
-      void client.release();
-    } else {
-      state.held = { kind: 'foreign', label: 'a stepped address' };
-    }
+  // A seed-derived address sitting exactly on its coordinate is trivially
+  // recomputable, so travel simply drops it. Anything else is work or luck that
+  // travel must not destroy — and it stays in the variant it already is, so it
+  // keeps remembering where it came from.
+  const parking = wasAddressMode && state.held.kind !== 'none';
+  if (state.held.kind === 'seed' && state.held.offset === 0) {
+    state.held = { kind: 'none' };
+    void client.release();
   }
-  if (parking && state.held.kind === 'foreign') {
-    toast(`${state.held.label} is still loaded — the chip on the stage returns to it`);
-  }
+  if (parking) toast(`${heldLabel()} is still loaded — the chip on the stage returns to it`);
 
   renderSeed();
   renderAddressPlaceholder();
@@ -356,14 +358,63 @@ function setSeed(seed: Seed, { pushUrl = true } = {}): void {
   if (pushUrl) syncUrl();
 }
 
-/** Bring a parked image back onto the stage. The worker never let go of it. */
+/**
+ * How far one press of the arrows moves. Clamped to what the arithmetic behind
+ * both lanes handles exactly: bumpAddress and seedAdd both decompose a signed
+ * double into limbs, so anything inside 2^53 is exact in either lane.
+ */
+function stepSize(): number {
+  // Only grouping marks are stripped. A decimal point is not a grouping mark:
+  // stripping it turned "1.5" into a step of fifteen.
+  const raw = $<HTMLInputElement>('stepSize').value.replace(/[\s,_']/g, '');
+  const n = Math.trunc(Math.abs(Number(raw)));
+  if (!Number.isFinite(n) || n < 1) return 1;
+  return Math.min(n, Number.MAX_SAFE_INTEGER);
+}
+
+/**
+ * Walk the lane the viewer is actually in.
+ *
+ * This is the whole reversibility contract. A picture reached through search
+ * lives at an address and has no coordinate, so moving the *coordinate* from
+ * there is not travel — it is a jump into a different space, and coming back
+ * returns the number without the picture. Whichever lane is on the stage is the
+ * lane the arrows move, so walking out N and back N always lands exactly home.
+ */
+function walk(delta: number): void {
+  if (state.mode === 'address') void stepAddress(delta);
+  else setSeed(seedAdd(state.seed, delta));
+}
+
+/** What a parked address should be called on the chip and in messages. */
+function heldLabel(): string {
+  if (state.held.kind === 'foreign') return state.held.label;
+  if (state.held.kind === 'seed') {
+    const n = Math.abs(state.held.offset).toLocaleString('en-US');
+    return `an address ${n} ${state.held.offset > 0 ? 'past' : 'before'} ${seedToHex(state.held.seed).slice(0, 8)}…`;
+  }
+  return 'an address';
+}
+
+/**
+ * Bring a parked image back onto the stage, and the bench back with it.
+ *
+ * Restoring the coordinate the image was parked from is what closes the loop
+ * across the lanes: leave from coordinate R, wander the coordinate lane, come
+ * back, and the bench reads R again — so the arrows resume meaning what they
+ * meant when you left. The worker never let go of the bytes.
+ */
 async function returnToHeld(): Promise<void> {
   if (state.held.kind === 'none') return;
+  const origin = state.held.kind === 'foreign' ? state.held.origin : state.held.seed;
+  state.seed = Uint32Array.from(origin) as Seed;
+  renderSeed();
   await adoptWorkerAddress();
   // The readout IS the address section now — no placeholder after it, or the
   // chip's scaffolding would paint over the very readout the return restored.
   await renderAddressReadout();
   updateLaneUI();
+  syncUrl();
   toast('Returned to the loaded image');
 }
 
@@ -388,7 +439,7 @@ async function resolveAddress(): Promise<void> {
     // evicts the loaded image. That must be the user's decision, not a side
     // effect they discover afterwards.
     const ok = window.confirm(
-      `Working out this coordinate's address will discard the loaded image (${state.held.label}). Continue?`,
+      `Working out this coordinate's address will discard the loaded image (${heldLabel()}). Continue?`,
     );
     if (!ok) return;
   }
@@ -417,23 +468,63 @@ async function resolveAddress(): Promise<void> {
  * coordinate: +1 alters the final pixel's least significant bit and nothing
  * else, so the picture is, to the eye, unchanged — and is a different image.
  */
+let stepping = false;
+let pendingStep = 0;
+
+/**
+ * Steps are serialised and coalesced, never dropped.
+ *
+ * Two in flight at once would race the banded repaint against the readout.
+ * Refusing the extra clicks instead would be just as wrong in the other
+ * direction — twelve presses have to move twelve. So presses accumulate and the
+ * next pass applies whatever has piled up, in one jump.
+ */
 async function stepAddress(delta: number): Promise<void> {
+  pendingStep += delta;
+  if (stepping) return;
   if (!workerMatchesStage()) {
     await resolveAddress();
     if (!workerMatchesStage()) return;
   }
-  busy(true, 'Stepping address', 0.5);
+  stepping = true;
   try {
-    await client.step(delta);
+    while (pendingStep !== 0) {
+      const move = pendingStep;
+      pendingStep = 0;
+      await applyStep(move);
+    }
+  } finally {
+    stepping = false;
+  }
+}
+
+async function applyStep(delta: number): Promise<void> {
+  {
+    const changedFrom = await client.step(delta);
     if (state.held.kind === 'seed') {
       state.held = { ...state.held, offset: state.held.offset + delta };
     }
-    await adoptWorkerAddress();
+
+    // Repaint only the rows the carry reached. A step of one touches the last
+    // byte, so this is a single row instead of the whole texture — the
+    // difference between stepping that feels instant and stepping that queues.
+    const { width, height } = state.format.resolution;
+    const bpp = state.format.depth.bytesPerPixel;
+    const firstRow = Math.max(0, Math.floor(changedFrom / bpp / width));
+    const rows = height - firstRow;
+
+    if (state.mode === 'address' && addressTexels && rows * width * bpp < 4_000_000) {
+      const band = await client.textureRows(firstRow, rows);
+      renderer.updateAddressRows(band.y0, band.rows, band.data);
+      // Keep the loupe's copy in step with the GPU's.
+      addressTexels.set(band.data, band.y0 * width * 4);
+      requestDraw();
+    } else {
+      await adoptWorkerAddress();
+    }
+
     await renderAddressReadout();
     updateLaneUI();
-    toast(delta > 0 ? 'Advanced one address' : 'Retreated one address');
-  } finally {
-    busy(false);
   }
 }
 
@@ -474,6 +565,16 @@ function readUrl(): void {
 // ---------------------------------------------------------------------------
 // Format
 // ---------------------------------------------------------------------------
+
+/**
+ * A grid, depth or geometry change re-parameterises the archive, so the loaded
+ * address — which is bytes at the old size — cannot survive it. Ask before
+ * spending someone's located picture on a dropdown.
+ */
+function confirmFormatChange(): boolean {
+  if (state.held.kind === 'none') return true;
+  return window.confirm(`Changing the format will discard the loaded image (${heldLabel()}). Continue?`);
+}
 
 function applyFormat(): void {
   reader = null;
@@ -746,7 +847,7 @@ async function mintPlate(): Promise<void> {
       $<HTMLSelectElement>('plateLayout').value,
       onProgress,
     );
-    state.held = { kind: 'foreign', label: `plate ${report.statement}` };
+    state.held = { kind: 'foreign', label: `plate ${report.statement}`, origin: Uint32Array.from(state.seed) as Seed };
     await adoptWorkerAddress();
     await renderAddressReadout();
     updateLaneUI();
@@ -805,7 +906,7 @@ async function inspectPng(file: File): Promise<void> {
 
     const bytes = decoded.pixels.slice();
     await client.adopt(state.format, bytes.buffer);
-    state.held = { kind: 'foreign', label: file.name };
+    state.held = { kind: 'foreign', label: file.name, origin: Uint32Array.from(state.seed) as Seed };
     await adoptWorkerAddress();
     await renderAddressReadout();
     updateLaneUI();
@@ -882,7 +983,7 @@ async function importAddressText(file: File): Promise<void> {
 
       adoptImportedFormat(format);
       await client.adopt(format, bytes.buffer);
-      state.held = { kind: 'foreign', label: file.name };
+      state.held = { kind: 'foreign', label: file.name, origin: Uint32Array.from(state.seed) as Seed };
       await adoptWorkerAddress();
       await renderAddressReadout();
       updateLaneUI();
@@ -903,7 +1004,7 @@ async function importAddressText(file: File): Promise<void> {
       const format = await client.importDecimal(text, resolvableFormats(), onProgress);
 
       adoptImportedFormat(format);
-      state.held = { kind: 'foreign', label: file.name };
+      state.held = { kind: 'foreign', label: file.name, origin: Uint32Array.from(state.seed) as Seed };
       await adoptWorkerAddress();
       await renderAddressReadout();
       updateLaneUI();
@@ -956,7 +1057,7 @@ async function openAddressFile(file: File): Promise<void> {
     // transfer to the worker hands over a buffer of exactly the right length.
     const bytes = unpacked.bytes.slice();
     await client.adopt(state.format, bytes.buffer);
-    state.held = { kind: 'foreign', label: file.name };
+    state.held = { kind: 'foreign', label: file.name, origin: Uint32Array.from(state.seed) as Seed };
     await adoptWorkerAddress();
     await renderAddressReadout();
     updateLaneUI();
@@ -995,7 +1096,7 @@ async function locate(): Promise<void> {
   try {
     const bitmap = await createImageBitmap(pendingFile);
     await client.search(state.format, bitmap, searchOptions(), state.seed, onProgress);
-    state.held = { kind: 'foreign', label: pendingFile.name };
+    state.held = { kind: 'foreign', label: pendingFile.name, origin: Uint32Array.from(state.seed) as Seed };
     await adoptWorkerAddress();
     await renderAddressReadout();
     updateLaneUI();
@@ -1134,16 +1235,37 @@ function openDrawer(panel: string | null): void {
 // ---------------------------------------------------------------------------
 
 let traverseTimer = 0;
+let traverseSteps = 0;
 
+/**
+ * Traverse walks the coordinate lane, and only ever the coordinate lane.
+ *
+ * Walking the address instead would be conceptually pure and visually inert —
+ * address+1 flips one bit, so every frame would look identical — and each tick
+ * would re-upload the whole texture. So this is a coordinate walk, it says so,
+ * and it counts its steps: halting reports how far it went, which is exactly
+ * how far the back arrow must go to return.
+ */
 function setPlaying(on: boolean): void {
   state.playing = on;
   $('play').setAttribute('aria-pressed', String(on));
   $('play').textContent = on ? 'Halt' : 'Traverse';
   window.clearInterval(traverseTimer);
+
   if (on) {
-    traverseTimer = window.setInterval(() => setSeed(seedAdd(state.seed, 1), { pushUrl: false }), 500);
+    traverseSteps = 0;
+    traverseTimer = window.setInterval(() => {
+      traverseSteps += 1;
+      setSeed(seedAdd(state.seed, 1), { pushUrl: false });
+    }, 500);
   } else {
     syncUrl();
+    if (traverseSteps > 0) {
+      toast(
+        `Traversed ${traverseSteps.toLocaleString('en-US')} coordinates — set the step to that and press ← to return.`,
+      );
+      traverseSteps = 0;
+    }
   }
 }
 
@@ -1193,11 +1315,21 @@ async function boot(): Promise<void> {
     (g) => `<option value="${g.id}">${g.label} — ${g.note}</option>`,
   ).join('');
   geoSelect.value = geometryOf();
-  geoSelect.addEventListener('change', () => setGeometry(geoSelect.value as Geometry));
+  geoSelect.addEventListener('change', () => {
+    if (!confirmFormatChange()) {
+      geoSelect.value = geometryOf();
+      return;
+    }
+    setGeometry(geoSelect.value as Geometry);
+  });
 
   const resSelect = $<HTMLSelectElement>('resolution');
   renderResolutionOptions();
   resSelect.addEventListener('change', () => {
+    if (!confirmFormatChange()) {
+      resSelect.value = state.format.resolution.id;
+      return;
+    }
     state.format = { ...state.format, resolution: resolutionById(resSelect.value, geometryOf()) };
     applyFormat();
   });
@@ -1208,6 +1340,10 @@ async function boot(): Promise<void> {
   ).join('');
   depthSelect.value = state.format.depth.id;
   depthSelect.addEventListener('change', () => {
+    if (!confirmFormatChange()) {
+      depthSelect.value = state.format.depth.id;
+      return;
+    }
     state.format = { ...state.format, depth: depthById(depthSelect.value) };
     applyFormat();
   });
@@ -1237,11 +1373,13 @@ async function boot(): Promise<void> {
 
   // Transport
   $('randomSeed').addEventListener('click', () => setSeed(randomSeed()));
-  $('nextSeed').addEventListener('click', () => setSeed(seedAdd(state.seed, 1)));
-  $('prevSeed').addEventListener('click', () => setSeed(seedAdd(state.seed, -1)));
+  $('nextSeed').addEventListener('click', () => walk(stepSize()));
+  $('prevSeed').addEventListener('click', () => walk(-stepSize()));
+  $('stepSize').addEventListener('change', updateLaneUI);
+  $('stepSize').addEventListener('input', updateLaneUI);
   $('play').addEventListener('click', () => setPlaying(!state.playing));
-  $('stepUp').addEventListener('click', () => void stepAddress(1));
-  $('stepDown').addEventListener('click', () => void stepAddress(-1));
+  $('stepUp').addEventListener('click', () => void stepAddress(stepSize()));
+  $('stepDown').addEventListener('click', () => void stepAddress(-stepSize()));
 
   // Exports
   $('exportPng').addEventListener('click', () => void exportPng());
@@ -1349,10 +1487,10 @@ async function boot(): Promise<void> {
 
     switch (e.key.toLowerCase()) {
       case 'r': setSeed(randomSeed()); break;
-      case 'arrowright': setSeed(seedAdd(state.seed, 1)); break;
-      case 'arrowleft': setSeed(seedAdd(state.seed, -1)); break;
-      case ']': void stepAddress(1); break;
-      case '[': void stepAddress(-1); break;
+      case 'arrowright': walk(stepSize()); break;
+      case 'arrowleft': walk(-stepSize()); break;
+      case ']': void stepAddress(stepSize()); break;
+      case '[': void stepAddress(-stepSize()); break;
       case ' ': e.preventDefault(); setPlaying(!state.playing); break;
       case 'f': stage.fit(); break;
       case '1': stage.actualSize(); break;

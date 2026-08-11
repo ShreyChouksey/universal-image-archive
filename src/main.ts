@@ -1490,7 +1490,7 @@ function openDrawer(panel: string | null): void {
     drawer.dataset.open = 'false';
     document.body.dataset.drawerOpen = 'false';
     document.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-expanded', 'false'));
-    window.dispatchEvent(new Event('resize'));
+    setTimeout(() => window.dispatchEvent(new Event('resize')), 240);
     return;
   }
   drawer.dataset.open = 'true';
@@ -1502,7 +1502,7 @@ function openDrawer(panel: string | null): void {
   document.querySelectorAll<HTMLElement>('.tab').forEach((t) => {
     t.setAttribute('aria-expanded', String(t.dataset.drawer === panel));
   });
-  window.dispatchEvent(new Event('resize'));
+  setTimeout(() => window.dispatchEvent(new Event('resize')), 240);
 }
 
 // ---------------------------------------------------------------------------

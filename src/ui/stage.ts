@@ -84,7 +84,14 @@ export class Stage {
     // until after a frame, and anything that fits the grid before then would be
     // fitting it to a 1x1 viewport.
     this.#measure();
-    const observer = new ResizeObserver(() => this.resize());
+    let resizeRaf = 0;
+    const observer = new ResizeObserver(() => {
+      if (resizeRaf) cancelAnimationFrame(resizeRaf);
+      resizeRaf = requestAnimationFrame(() => {
+        resizeRaf = 0;
+        this.resize();
+      });
+    });
     observer.observe(root);
 
     root.addEventListener('pointerdown', (e) => {

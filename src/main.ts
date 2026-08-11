@@ -91,15 +91,8 @@ type Held =
 interface State {
   format: ArchiveFormat;
   seed: Seed;
-  /**
-   * How far the location sits from the coordinate's own address, in steps.
-   *
-   * A location is a coordinate and an offset. Because an offset only rewrites
-   * the tail of the address, the pair names an exact address that the GPU can
-   * paint with nothing allocated — which is what lets the arrows always mean
-   * "address" without a 47 MiB materialisation standing in the way.
-   */
   offset: number;
+  headOffset: number;
   /** 'seed' renders from the coordinate and offset; 'address' renders a texture. */
   mode: 'seed' | 'address';
   held: Held;
@@ -110,6 +103,7 @@ const state: State = {
   format: DEFAULT_FORMAT,
   seed: randomSeed(),
   offset: 0,
+  headOffset: 0,
   mode: 'seed',
   held: { kind: 'none' },
   playing: false,
@@ -415,20 +409,31 @@ function renderSeedLocation(): void {
   const cap = capacity();
   const scale = archiveScale(state.format);
 
+  let headBytes = seedHeadBytes(state.format, state.seed, 16);
+  if (state.headOffset !== 0) {
+    const headSeed = seedFromHex(hex(headBytes)) ?? (new Uint32Array(4) as Seed);
+    const updated = seedAdd(headSeed, state.headOffset);
+    headBytes = new Uint8Array(updated.buffer, updated.byteOffset, updated.byteLength);
+  }
+
   let head: string;
   let tail: string;
   try {
-    head = hex(seedHeadBytes(state.format, state.seed, 16));
+    head = hex(headBytes);
     tail = hex(seedTailBytes(state.format, state.seed, state.offset, 16));
   } catch {
     renderAddressPlaceholder();
     return;
   }
 
-  const offsetNote =
-    state.offset === 0
-      ? 'on coordinate'
-      : `${state.offset > 0 ? '+' : '−'}${Math.abs(state.offset).toLocaleString('en-US')} from coordinate`;
+  const notes: string[] = [];
+  if (state.headOffset !== 0) {
+    notes.push(`${state.headOffset > 0 ? '+' : '−'}${Math.abs(state.headOffset).toLocaleString('en-US')} from head`);
+  }
+  if (state.offset !== 0) {
+    notes.push(`${state.offset > 0 ? '+' : '−'}${Math.abs(state.offset).toLocaleString('en-US')} from coordinate`);
+  }
+  const offsetNote = notes.length > 0 ? notes.join(' · ') : 'on coordinate';
 
   const formattedDigits = group(scale.cardinalityDigits);
   const scaleHint = scale.cardinalityDigits > 1e6 ? ` (~${(scale.cardinalityDigits / 1e6).toFixed(2)}M digits)` : '';
@@ -585,6 +590,7 @@ function setSeed(seed: Seed, { pushUrl = true, offset = 0 } = {}): void {
   const wasAddressMode = state.mode === 'address';
   state.seed = seed;
   state.offset = offset;
+  state.headOffset = 0;
   state.mode = 'seed';
   refreshPatch();
   addressTexels = null;

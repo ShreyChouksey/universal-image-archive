@@ -35,6 +35,7 @@ export const RESOLUTIONS: readonly Resolution[] = [
   { id: 'qhd', label: '1440p', note: '2560 × 1440', width: 2560, height: 1440, geometry: 'plane' },
   { id: 'fhd', label: '1080p', note: '1920 × 1080', width: 1920, height: 1080, geometry: 'plane' },
   { id: 'hd', label: '720p', note: '1280 × 720', width: 1280, height: 720, geometry: 'plane' },
+  { id: 'sd', label: '480p', note: '854 × 480', width: 854, height: 480, geometry: 'plane' },
   { id: 'px512', label: '512 × 512', note: '262,144 px · 1:1 square', width: 512, height: 512, geometry: 'plane' },
   { id: 'px256', label: '256 × 256', note: '65,536 px · 1:1 square', width: 256, height: 256, geometry: 'plane' },
   { id: 'px128', label: '128 × 128', note: '16,384 px · 1:1 square', width: 128, height: 128, geometry: 'plane' },

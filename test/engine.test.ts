@@ -15,6 +15,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  philox4x32,
   philox4x32_10,
   philoxScratch,
   randomSeed,

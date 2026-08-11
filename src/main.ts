@@ -134,7 +134,7 @@ function refreshPatch(): boolean {
         ? base
           ? tailPatchFromBytes(state.format, base.tail, state.offset)
           : null
-        : tailPatch(state.format, state.seed, state.offset);
+        : tailPatch(state.format, state.seed, state.offset, state.rounds);
     return true;
   } catch (error) {
     if (error instanceof CarryEscaped) return false;
@@ -1711,8 +1711,14 @@ async function boot(): Promise<void> {
   const roundsSelect = $<HTMLSelectElement>('philoxRounds');
   if (roundsSelect) {
     roundsSelect.value = String(state.rounds);
-    roundsSelect.addEventListener('change', () => {
+    roundsSelect.addEventListener('change', async () => {
       state.rounds = Number(roundsSelect.value);
+      refreshPatch();
+      if (state.mode === 'address') {
+        await resolveAddress();
+      } else {
+        renderSeedLocation();
+      }
       requestDraw();
       syncUrl();
       toast(`Philox Cipher configured to ${state.rounds} rounds`);

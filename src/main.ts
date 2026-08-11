@@ -442,13 +442,16 @@ function updateLaneUI(): void {
   const badge = document.getElementById('laneBadge');
   if (badge) {
     if (state.mode === 'address') {
-      badge.textContent = 'MATERIALISED ADDRESS · 3.85M DIGITS';
+      const s = archiveScale(state.format);
+      const digitsHuman = scaleWord(s.cardinalityDigits);
+      const sizeHuman = bytesHuman(s.bytes);
+      badge.textContent = `MATERIALISED ADDRESS · ${digitsHuman.toUpperCase()} DIGITS`;
       badge.className = 'lane-badge lane-badge--address';
-      badge.title = 'This image is at its exact base-256 address in the archive (1.52 MiB, 3.85M decimal digits)';
+      badge.title = `This image is at its exact base-256 address in the archive (${sizeHuman}, ${digitsHuman} decimal digits)`;
     } else {
       badge.textContent = 'GENERATOR SEED · PHILOX 128-BIT';
       badge.className = 'lane-badge lane-badge--seed';
-      badge.title = 'A 128-bit coordinate that expands via Philox noise into a 4K frame';
+      badge.title = 'A 128-bit coordinate that expands via Philox noise into a frame';
     }
   }
 

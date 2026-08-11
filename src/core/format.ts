@@ -35,10 +35,10 @@ export const RESOLUTIONS: readonly Resolution[] = [
   { id: 'qhd', label: '1440p', note: '2560 × 1440', width: 2560, height: 1440, geometry: 'plane' },
   { id: 'fhd', label: '1080p', note: '1920 × 1080', width: 1920, height: 1080, geometry: 'plane' },
   { id: 'babelia', label: 'Babelia', note: '640 × 416', width: 640, height: 416, geometry: 'plane' },
-  { id: 'px512', label: '512 × 512', note: '512 × 512', width: 512, height: 512, geometry: 'plane' },
-  { id: 'px256', label: '256 × 256', note: '256 × 256', width: 256, height: 256, geometry: 'plane' },
-  { id: 'px128', label: '128 × 128', note: '128 × 128', width: 128, height: 128, geometry: 'plane' },
-  { id: 'px64', label: '64 × 64', note: '64 × 64', width: 64, height: 64, geometry: 'plane' },
+  { id: 'px512', label: '512 × 512', note: '262,144 px · 1:1 square', width: 512, height: 512, geometry: 'plane' },
+  { id: 'px256', label: '256 × 256', note: '65,536 px · 1:1 square', width: 256, height: 256, geometry: 'plane' },
+  { id: 'px128', label: '128 × 128', note: '16,384 px · 1:1 square', width: 128, height: 128, geometry: 'plane' },
+  { id: 'px64', label: '64 × 64', note: '4,096 px · 1:1 square', width: 64, height: 64, geometry: 'plane' },
 
   // Equirectangular, always 2:1 — a full turn of longitude against half a turn
   // of latitude. 8192 is not arbitrary: it is WebGPU's guaranteed

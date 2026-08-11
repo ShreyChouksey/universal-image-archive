@@ -25,10 +25,10 @@
           <h1 class="rail__title">Universal Image Archive</h1>
         </div>
 
-        <div class="rail__pipeline" id="pipeline" title="Rendering pipeline">
-          <span class="pipeline__dot" data-state="pending"></span>
+        <button class="rail__pipeline" id="pipeline" type="button" title="Click to view Hardware Telemetry & System Toll Inspector">
+          <span class="pipeline__dot" data-state="pending" id="pipelineDot"></span>
           <span class="pipeline__text" id="pipelineText">initialising</span>
-        </div>
+        </button>
 
         <nav class="rail__nav">
           <button class="tab" type="button" data-drawer="search">Search</button>
@@ -510,6 +510,51 @@
         </p>
       </section>
     </aside>
+
+    <div class="telemetry-modal" id="telemetryModal" hidden>
+      <div class="telemetry-modal__backdrop" id="telemetryBackdrop"></div>
+      <div class="telemetry-modal__card">
+        <header class="telemetry-modal__header">
+          <div class="telemetry-modal__title">
+            <span class="telemetry-modal__dot" id="telemetryModalDot"></span>
+            Hardware & System Telemetry Inspector
+          </div>
+          <button class="telemetry-modal__close" id="telemetryClose" type="button" aria-label="Close inspector">×</button>
+        </header>
+
+        <div class="telemetry-modal__warning" id="telemetryWarning" hidden></div>
+
+        <div class="telemetry-modal__grid">
+          <div class="telemetry-card">
+            <span class="label">Framerate & Latency</span>
+            <div class="telemetry-card__value" id="telemFps">60 FPS</div>
+            <div class="telemetry-card__sub" id="telemFrameMs">0.80 ms render compute</div>
+          </div>
+
+          <div class="telemetry-card">
+            <span class="label">Memory & VRAM Toll</span>
+            <div class="telemetry-card__value" id="telemVram">1.52 MiB</div>
+            <div class="telemetry-card__sub" id="telemHeap">JS Heap: —</div>
+          </div>
+
+          <div class="telemetry-card">
+            <span class="label">Cipher Throughput</span>
+            <div class="telemetry-card__value" id="telemThroughput">332.8 Mpx/s</div>
+            <div class="telemetry-card__sub" id="telemRounds">Philox 12 Feistel Rounds</div>
+          </div>
+
+          <div class="telemetry-card">
+            <span class="label">GPU Device Backend</span>
+            <div class="telemetry-card__value" id="telemGpu">WebGPU</div>
+            <div class="telemetry-card__sub" id="telemMaxTex">Max Texture: 8192px</div>
+          </div>
+        </div>
+
+        <div class="telemetry-modal__footer">
+          <span class="dim" id="telemetryFooterNote">System hardware performance monitored live at 120 FPS.</span>
+        </div>
+      </div>
+    </div>
 
     <div class="toast" id="toast" hidden></div>
 

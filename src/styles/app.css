@@ -279,29 +279,53 @@ kbd {
   align-items: center;
   gap: 7px;
   margin-left: auto;
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
   font-family: var(--mono);
   font-size: 10.5px;
-  color: var(--ink-3);
+  color: var(--ink-2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  cursor: pointer;
+  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+
+.rail__pipeline:hover {
+  background: var(--raised);
+  border-color: var(--rule);
+  color: var(--ink);
 }
 
 .pipeline__dot {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
   flex: none;
   border-radius: 50%;
   background: var(--ink-3);
+  transition: background var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
 }
 
 .pipeline__dot[data-state='ready'] {
   background: var(--ink);
+  box-shadow: 0 0 6px rgba(240, 234, 224, 0.4);
 }
 
-.pipeline__dot[data-state='degraded'] {
-  background: var(--ink-3);
-  box-shadow: inset 0 0 0 1px var(--ink-2);
+.pipeline__dot[data-state='moderate'] {
+  background: #e6b800;
+  box-shadow: 0 0 6px rgba(230, 184, 0, 0.4);
+}
+
+.pipeline__dot[data-state='heavy'] {
+  background: #ff8c00;
+  box-shadow: 0 0 8px rgba(255, 140, 0, 0.6);
+}
+
+.pipeline__dot[data-state='extreme'] {
+  background: #ff4d4d;
+  box-shadow: 0 0 10px rgba(255, 77, 77, 0.8);
 }
 
 .rail__nav {
@@ -1252,6 +1276,134 @@ kbd {
   .transport__note {
     max-width: none;
   }
+}
+
+/* --------------------------------------------------------- telemetry modal */
+
+.telemetry-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.telemetry-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 9, 8, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.telemetry-modal__card {
+  position: relative;
+  width: 100%;
+  max-width: 580px;
+  background: var(--panel);
+  border: 1px solid var(--rule-strong);
+  border-radius: 6px;
+  padding: 24px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+  z-index: 1001;
+  animation: modalEnter 180ms var(--ease);
+}
+
+@keyframes modalEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+.telemetry-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.telemetry-modal__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--serif);
+  font-size: 16px;
+  color: var(--ink);
+}
+
+.telemetry-modal__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink);
+}
+
+.telemetry-modal__close {
+  background: none;
+  border: none;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--ink-3);
+  cursor: pointer;
+  padding: 4px;
+  transition: color var(--fast) var(--ease);
+}
+
+.telemetry-modal__close:hover {
+  color: var(--ink);
+}
+
+.telemetry-modal__warning {
+  margin-bottom: 18px;
+  padding: 10px 14px;
+  background: rgba(255, 140, 0, 0.12);
+  border: 1px solid rgba(255, 140, 0, 0.4);
+  border-radius: 4px;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.telemetry-modal__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.telemetry-card {
+  padding: 14px;
+  background: var(--ground);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+}
+
+.telemetry-card__value {
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--ink);
+  margin: 6px 0 2px 0;
+}
+
+.telemetry-card__sub {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-2);
+}
+
+.telemetry-modal__footer {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-align: right;
+  border-top: 1px solid var(--rule);
+  padding-top: 12px;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -27,6 +27,7 @@ import {
 } from './core/format';
 import { createRenderer, PROBE, type Renderer } from './gpu/renderer';
 import { decodePng } from './core/png';
+import { TelemetryMonitor } from './core/telemetry';
 import {
   PLATE_LAYOUTS,
   normaliseStatement,
@@ -212,17 +213,69 @@ let reader: Reader | null = null;
 // Rendering
 // ---------------------------------------------------------------------------
 
+const telemetry = new TelemetryMonitor();
+
 let frameQueued = false;
+
+function updateTelemetryUI(): void {
+  if (!renderer) return;
+  const sample = telemetry.sample(state.format, state.rounds);
+  const dot = document.getElementById('pipelineDot');
+  if (dot) dot.dataset.state = sample.hardwareToll === 'optimal' ? 'ready' : sample.hardwareToll;
+
+  const text = document.getElementById('pipelineText');
+  if (text) {
+    text.textContent = `${renderer.capabilities.backend} · ${sample.fps} FPS · ${sample.vramHuman} · ${sample.frameTimeMs}ms`;
+  }
+
+  const modal = document.getElementById('telemetryModal');
+  if (modal && !modal.hidden) {
+    const set = (id: string, val: string) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = val;
+    };
+    set('telemFps', `${sample.fps} FPS`);
+    set('telemFrameMs', `${sample.frameTimeMs} ms render compute`);
+    set('telemVram', sample.vramHuman);
+    set('telemHeap', sample.jsHeapHuman ? `JS Heap: ${sample.jsHeapHuman}` : 'JS Heap: Unrestricted');
+    set('telemThroughput', `${sample.throughputMpxPerSec} Mpx/s`);
+    set('telemRounds', `Philox ${state.rounds} Feistel Rounds`);
+    set('telemGpu', sample.gpuAdapter);
+    set('telemMaxTex', `Max Texture: ${sample.maxTextureSize}px`);
+
+    const modalDot = document.getElementById('telemetryModalDot');
+    if (modalDot) {
+      modalDot.style.background =
+        sample.hardwareToll === 'extreme' ? '#ff4d4d' :
+        sample.hardwareToll === 'heavy' ? '#ff8c00' :
+        sample.hardwareToll === 'moderate' ? '#e6b800' : '#f0eae0';
+    }
+
+    const warnEl = document.getElementById('telemetryWarning');
+    if (warnEl) {
+      if (sample.tollWarning) {
+        warnEl.textContent = sample.tollWarning;
+        warnEl.hidden = false;
+      } else {
+        warnEl.hidden = true;
+      }
+    }
+  }
+}
 
 function requestDraw(): void {
   if (frameQueued) return;
   frameQueued = true;
   requestAnimationFrame(() => {
     frameQueued = false;
+    const t0 = performance.now();
     renderer.draw(
       { format: state.format, mode: state.mode, seed: state.seed, rounds: state.rounds, patch },
       stage.view,
     );
+    const renderTime = performance.now() - t0;
+    telemetry.recordFrame(renderTime);
+    updateTelemetryUI();
   });
 }
 
@@ -1553,16 +1606,8 @@ async function boot(): Promise<void> {
   }
 
   const caps = renderer.capabilities;
-  $('pipelineText').textContent = [
-    caps.backend,
-    caps.canvasFormat,
-    caps.colorSpace,
-    caps.hdr ? 'HDR' : `${caps.outputBits}-bit out`,
-  ].join(' · ');
-  $('pipeline').querySelector('.pipeline__dot')!.setAttribute(
-    'data-state',
-    caps.outputBits === 16 ? 'ready' : 'degraded',
-  );
+  telemetry.setGpuInfo(caps.backend, caps.maxTextureDimension);
+  updateTelemetryUI();
 
   stage = new Stage($('stage'), canvas, renderer, state.format, {
     sample: (x, y) => {
@@ -1762,6 +1807,22 @@ async function boot(): Promise<void> {
       });
     }
   });
+
+  // Telemetry Inspector Modal
+  $('pipeline')?.addEventListener('click', () => {
+    const modal = document.getElementById('telemetryModal');
+    if (modal) {
+      modal.hidden = !modal.hidden;
+      if (!modal.hidden) updateTelemetryUI();
+    }
+  });
+
+  const closeTelemetry = () => {
+    const modal = document.getElementById('telemetryModal');
+    if (modal) modal.hidden = true;
+  };
+  $('telemetryClose')?.addEventListener('click', closeTelemetry);
+  $('telemetryBackdrop')?.addEventListener('click', closeTelemetry);
 
   // Drawer
   document.querySelectorAll<HTMLElement>('.tab').forEach((tab) => {

@@ -120,3 +120,60 @@ export function decimalCostSeconds(addressBytes: number): number {
 export function describeDecimalCost(addressBytes: number): string {
   return duration(decimalCostSeconds(addressBytes));
 }
+
+import { archiveScale } from './address';
+import type { ArchiveFormat } from './format';
+
+export interface FunFact {
+  title: string;
+  fact: string;
+}
+
+export function gridFunFacts(format: ArchiveFormat): FunFact[] {
+  const scale = archiveScale(format);
+  const { width, height } = format.resolution;
+  const bytes = scale.bytes;
+  const bits = scale.bits;
+  const digits = scale.cardinalityDigits;
+  const exp = scale.cardinalityExponent;
+
+  const ATOMS_LOG10 = 80;
+  const PER_SECOND_LOG10 = 9;
+  const universeSeconds = 13.8e9 * YEAR_SECONDS;
+  const producedLog10 = ATOMS_LOG10 + PER_SECOND_LOG10 + Math.log10(universeSeconds);
+  const fractionExponent = Math.round(producedLog10 - exp);
+
+  const readSecs = digits / 3;
+  const populationSecs = readSecs / 8.1e9;
+
+  return [
+    {
+      title: 'Cosmic Scale vs. Universe',
+      fact: `Every atom in the observable universe (10⁸⁰) generating a billion images a second since the Big Bang (13.8B yrs) yields 10¹⁰⁷ images. This ${format.resolution.label} grid holds 10${superscriptOf(exp)} images — meaning all matter in time could only cover 10${superscriptOf(fractionExponent)}% of this single archive.`,
+    },
+    {
+      title: 'Global Recitation Relay',
+      fact: `If all 8.1 billion people on Earth read this ${format.resolution.label} address aloud together in shifts at 3 digits per second, it would take ${duration(populationSecs)} to finish speaking it.`,
+    },
+    {
+      title: 'DNA Genetic Code Storage',
+      fact: `Encoding this single ${format.resolution.label} image address into DNA nucleotides (2 bits per base pair) requires ${(bits / 2).toLocaleString('en-US')} base pairs — equivalent to ${((bits / 2) / 1000).toFixed(1)}k pairs of genetic code.`,
+    },
+    {
+      title: 'Physical Paper Ribbon',
+      fact: `Typeset in 10pt monospace on a single continuous line, this address stretches ${distance((digits * 2.117) / 1000)} — about ${((digits * 2.117 / 1000) / 384400000).toFixed(4)}× the distance to the Moon.`,
+    },
+    {
+      title: 'Borges Library Omnipresence',
+      fact: `Because this ${format.resolution.label} grid ($10${superscriptOf(exp)}$ images) forms an exact mathematical bijection over all ${width}×${height} ${format.depth.label} pixel matrices, every photo of you ever taken already exists at a precise coordinate in this grid.`,
+    },
+    {
+      title: 'Brute-Force Thermodynamics',
+      fact: `Finding a specific target image in this ${format.resolution.label} archive by brute force requires searching 2¹²⁸ seeds — taking more thermodynamic energy than boiling Earth's oceans 400× over.`,
+    },
+    {
+      title: 'Microscopic Quantum Etching',
+      fact: `If each byte of this ${bytes.toLocaleString('en-US')}-byte address were etched as a 1-nanometer magnetic cell, the physical chip would measure just ${Math.sqrt(bytes).toFixed(1)} nanometers across.`,
+    },
+  ];
+}

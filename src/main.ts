@@ -59,7 +59,7 @@ import {
 import { DECIMAL_MODULUS } from './core/address';
 import { Stage } from './ui/stage';
 import { Reader, drawHistogram } from './ui/reader';
-import { addressAnchors, archiveAnchors, describeDecimalCost } from './core/magnitude';
+import { addressAnchors, archiveAnchors, describeDecimalCost, gridFunFacts } from './core/magnitude';
 import { bytesHuman, group, scaleWord, superscript } from './ui/numbers';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -1119,6 +1119,22 @@ async function renderAddressPanel(): Promise<void> {
   ]
     .map((a) => `<div><dt>${a.label}</dt><dd>${a.value}</dd></div>`)
     .join('');
+
+  renderFunFact();
+}
+
+let currentFactIndex = 0;
+
+function renderFunFact(): void {
+  const facts = gridFunFacts(state.format);
+  if (facts.length === 0) return;
+  const item = facts[currentFactIndex % facts.length];
+  const titleEl = document.getElementById('funFactTitle');
+  const bodyEl = document.getElementById('funFactBody');
+  if (titleEl && bodyEl) {
+    titleEl.textContent = `✦ COSMIC FACT · ${item.title}`;
+    bodyEl.textContent = item.fact;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1832,6 +1848,11 @@ async function boot(): Promise<void> {
   document.getElementById('openAddressInspector')?.addEventListener('click', () => {
     openDrawer('address');
     void renderAddressPanel();
+  });
+
+  document.getElementById('cycleFunFact')?.addEventListener('click', () => {
+    currentFactIndex++;
+    renderFunFact();
   });
 
   document.addEventListener('click', (e) => {

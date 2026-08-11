@@ -1415,6 +1415,49 @@ kbd {
   margin-bottom: 20px;
 }
 
+.fun-fact-card {
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: var(--ground);
+  border: 1px solid var(--rule-strong);
+  border-radius: 4px;
+  font-family: var(--mono);
+}
+
+.fun-fact-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.fun-fact-card__title {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+  text-transform: uppercase;
+}
+
+.fun-fact-card__cycle {
+  font-size: 10px;
+  padding: 2px 8px;
+  color: var(--ink-2);
+}
+
+.fun-fact-card__cycle:hover {
+  color: var(--ink);
+}
+
+.fun-fact-card__body {
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--ink-2);
+  margin: 0;
+}
+
 .telemetry-card {
   padding: 14px;
   background: var(--ground);

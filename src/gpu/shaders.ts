@@ -56,10 +56,11 @@ fn mulhilo(a : u32, b : u32) -> vec2<u32> {
   return vec2<u32>(hi, lo);
 }
 
-fn philox(c0 : u32, c1 : u32, c2 : u32, c3 : u32, k0 : u32, k1 : u32) -> vec4<u32> {
+fn philox(c0 : u32, c1 : u32, c2 : u32, c3 : u32, k0 : u32, k1 : u32, rounds : u32) -> vec4<u32> {
   var x0 = c0; var x1 = c1; var x2 = c2; var x3 = c3;
   var key0 = k0; var key1 = k1;
-  for (var r : i32 = 0; r < 10; r = r + 1) {
+  let totalRounds = i32(rounds);
+  for (var r : i32 = 0; r < totalRounds; r = r + 1) {
     let p0 = mulhilo(M0, x0);
     let p1 = mulhilo(M1, x2);
     let n0 = p1.x ^ x1 ^ key0;
@@ -67,7 +68,7 @@ fn philox(c0 : u32, c1 : u32, c2 : u32, c3 : u32, k0 : u32, k1 : u32) -> vec4<u3
     let n2 = p0.x ^ x3 ^ key1;
     let n3 = p0.y;
     x0 = n0; x1 = n1; x2 = n2; x3 = n3;
-    if (r < 9) {
+    if (r < totalRounds - 1) {
       key0 = key0 + W0;
       key1 = key1 + W1;
     }
@@ -106,7 +107,9 @@ fn fetch(px : vec2<i32>, mode : f32, maxChannel : f32) -> vec3<f32> {
   }
 
   if (mode < 0.5) {
-    let words = philox(index, 0u, u.seed.z, u.seed.w, u.seed.x, u.seed.y);
+    var rounds = u.tailInfo.z;
+    if (rounds == 0u) { rounds = 12u; }
+    let words = philox(index, 0u, u.seed.z, u.seed.w, u.seed.x, u.seed.y, rounds);
     let mask = u32(maxChannel);
     return vec3<f32>(
       f32(words.x & mask),
@@ -280,10 +283,11 @@ uvec2 mulhilo(uint a, uint b) {
   return uvec2(hi, lo);
 }
 
-uvec4 philox(uint c0, uint c1, uint c2, uint c3, uint k0, uint k1) {
+uvec4 philox(uint c0, uint c1, uint c2, uint c3, uint k0, uint k1, uint rounds) {
   uint x0 = c0, x1 = c1, x2 = c2, x3 = c3;
   uint key0 = k0, key1 = k1;
-  for (int r = 0; r < 10; r++) {
+  int totalRounds = int(rounds);
+  for (int r = 0; r < totalRounds; r++) {
     uvec2 p0 = mulhilo(M0, x0);
     uvec2 p1 = mulhilo(M1, x2);
     uint n0 = p1.x ^ x1 ^ key0;
@@ -291,7 +295,7 @@ uvec4 philox(uint c0, uint c1, uint c2, uint c3, uint k0, uint k1) {
     uint n2 = p0.x ^ x3 ^ key1;
     uint n3 = p0.y;
     x0 = n0; x1 = n1; x2 = n2; x3 = n3;
-    if (r < 9) { key0 += W0; key1 += W1; }
+    if (r < totalRounds - 1) { key0 += W0; key1 += W1; }
   }
   return uvec4(x0, x1, x2, x3);
 }
@@ -306,7 +310,8 @@ vec3 fetch(ivec2 px, float mode, float maxChannel) {
   }
 
   if (mode < 0.5) {
-    uvec4 w = philox(index, 0u, uSeed.z, uSeed.w, uSeed.x, uSeed.y);
+    uint rounds = uPatchInfo.z > 0u ? uPatchInfo.z : 12u;
+    uvec4 w = philox(index, 0u, uSeed.z, uSeed.w, uSeed.x, uSeed.y, rounds);
     uint mask = uint(maxChannel);
     return vec3(float(w.x & mask), float(w.y & mask), float(w.z & mask)) / maxChannel;
   }

@@ -728,6 +728,13 @@ kbd {
   flex: 1;
 }
 
+.select--mini {
+  padding: 6px 20px 6px 8px;
+  font-size: 11px;
+  background-position: right 6px center;
+  flex: 1;
+}
+
 /*
  * How far a step moves. It sits between the arrows because that is what it
  * governs — walk out by this much, walk back by this much, and be home.

@@ -27,6 +27,7 @@ export interface StageHooks {
   /** Channel values at an image pixel, or null if unavailable. */
   sample(x: number, y: number): Sample | null;
   onViewChange(): void;
+  onEntropyMotion?(dx: number, dy: number, dt: number): void;
 }
 
 const MIN_ZOOM_FACTOR = 0.9; // relative to fit
@@ -101,8 +102,19 @@ export class Stage {
       root.setPointerCapture(e.pointerId);
     });
 
+    let lastPointerTime = performance.now();
     root.addEventListener('pointermove', (e) => {
       const rect = root.getBoundingClientRect();
+      const now = performance.now();
+      const dt = Math.max(1, now - lastPointerTime);
+      lastPointerTime = now;
+      if (this.#lastPointer) {
+        const pdx = e.clientX - this.#lastPointer.x;
+        const pdy = e.clientY - this.#lastPointer.y;
+        if (pdx !== 0 || pdy !== 0) {
+          this.#hooks.onEntropyMotion?.(pdx, pdy, dt);
+        }
+      }
       this.#cursor = { x: e.clientX - rect.left, y: e.clientY - rect.top };
       if (this.#dragging && this.#lastPointer) {
         const dx = (e.clientX - this.#lastPointer.x) * this.#dpr;
@@ -124,6 +136,8 @@ export class Stage {
         }
         this.#lastPointer = { x: e.clientX, y: e.clientY };
         this.#hooks.onViewChange();
+      } else {
+        this.#lastPointer = { x: e.clientX, y: e.clientY };
       }
       this.updateReadouts();
     });

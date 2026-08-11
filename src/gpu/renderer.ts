@@ -36,6 +36,7 @@ export interface RenderInput {
   format: ArchiveFormat;
   mode: 'seed' | 'address';
   seed: Seed;
+  rounds?: number;
   /** Tail of the address once an offset is applied; null when sitting on the seed. */
   patch?: TailPatch | null;
 }
@@ -129,7 +130,7 @@ function fillUniforms(
   const patch = input.patch ?? null;
   u32[16] = patch ? patch.firstPixel : 0;
   u32[17] = patch ? patch.count : 0;
-  u32[18] = 0;
+  u32[18] = input.rounds ?? 12;
   u32[19] = 0;
   if (patch) u32.set(patch.values.subarray(0, PATCH_PIXELS * 4), 20);
   else u32.fill(0, 20, 20 + PATCH_PIXELS * 4);

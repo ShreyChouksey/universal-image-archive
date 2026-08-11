@@ -116,6 +116,18 @@ test('philox matches the published Random123 vectors', () => {
   assert.ok(r.ok, r.detail);
 });
 
+test('philox4x32 supports custom rounds (12 to 24)', () => {
+  const out12 = philoxScratch();
+  const out24 = philoxScratch();
+  philox4x32(out12, 1, 2, 3, 4, 5, 6, 12);
+  philox4x32(out24, 1, 2, 3, 4, 5, 6, 24);
+  assert.notDeepEqual(Array.from(out12), Array.from(out24));
+  for (let k = 0; k < 4; k++) {
+    assert.ok(Number.isInteger(out12[k]) && out12[k] >= 0 && out12[k] <= 0xffffffff);
+    assert.ok(Number.isInteger(out24[k]) && out24[k] >= 0 && out24[k] <= 0xffffffff);
+  }
+});
+
 test('mulhilo is exact against BigInt over random inputs', () => {
   // Exercised through philox itself: a wrong high word diverges immediately.
   const out = philoxScratch();

@@ -40,13 +40,14 @@ export function philoxScratch(): Philox4 {
 }
 
 /**
- * Ten rounds of Philox4x32.
+ * Philox4x32 PRNG accepting custom round count (12 to 24, default 12).
  *
  * @param out  4 uint32s of output (128 bits)
  * @param c0..c3 counter words
  * @param k0,k1  key words
+ * @param rounds number of Feistel mixing rounds (default 12)
  */
-export function philox4x32_10(
+export function philox4x32(
   out: Philox4,
   c0: number,
   c1: number,
@@ -54,6 +55,7 @@ export function philox4x32_10(
   c3: number,
   k0: number,
   k1: number,
+  rounds = 12,
 ): void {
   let x0 = c0 >>> 0;
   let x1 = c1 >>> 0;
@@ -62,7 +64,8 @@ export function philox4x32_10(
   let key0 = k0 >>> 0;
   let key1 = k1 >>> 0;
 
-  for (let round = 0; round < 10; round++) {
+  const totalRounds = Math.max(1, Math.min(64, rounds));
+  for (let round = 0; round < totalRounds; round++) {
     const [hi0, lo0] = mulhilo(M0, x0);
     const [hi1, lo1] = mulhilo(M1, x2);
     const n0 = (hi1 ^ x1 ^ key0) >>> 0;
@@ -73,7 +76,7 @@ export function philox4x32_10(
     x1 = n1;
     x2 = n2;
     x3 = n3;
-    if (round < 9) {
+    if (round < totalRounds - 1) {
       key0 = (key0 + W0) >>> 0;
       key1 = (key1 + W1) >>> 0;
     }
@@ -83,6 +86,21 @@ export function philox4x32_10(
   out[1] = x1;
   out[2] = x2;
   out[3] = x3;
+}
+
+/**
+ * Ten rounds of Philox4x32 for Random123 reference vector compatibility.
+ */
+export function philox4x32_10(
+  out: Philox4,
+  c0: number,
+  c1: number,
+  c2: number,
+  c3: number,
+  k0: number,
+  k1: number,
+): void {
+  philox4x32(out, c0, c1, c2, c3, k0, k1, 10);
 }
 
 /**

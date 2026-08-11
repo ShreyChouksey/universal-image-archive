@@ -93,6 +93,8 @@ interface State {
   seed: Seed;
   offset: number;
   headOffset: number;
+  rounds: number;
+  entropyMode: boolean;
   /** 'seed' renders from the coordinate and offset; 'address' renders a texture. */
   mode: 'seed' | 'address';
   held: Held;
@@ -104,6 +106,8 @@ const state: State = {
   seed: randomSeed(),
   offset: 0,
   headOffset: 0,
+  rounds: 12,
+  entropyMode: false,
   mode: 'seed',
   held: { kind: 'none' },
   playing: false,
@@ -216,7 +220,7 @@ function requestDraw(): void {
   requestAnimationFrame(() => {
     frameQueued = false;
     renderer.draw(
-      { format: state.format, mode: state.mode, seed: state.seed, patch },
+      { format: state.format, mode: state.mode, seed: state.seed, rounds: state.rounds, patch },
       stage.view,
     );
   });
@@ -808,6 +812,7 @@ function syncUrl(): void {
   params.set('g', geometryOf());
   params.set('r', state.format.resolution.id);
   params.set('d', state.format.depth.id);
+  if (state.rounds !== 12) params.set('n', String(state.rounds));
   history.replaceState(null, '', `#${params.toString()}`);
 }
 
@@ -820,6 +825,8 @@ function readUrl(): void {
   }
   const o = Number(params.get('o'));
   if (Number.isSafeInteger(o)) state.offset = o;
+  const n = Number(params.get('n'));
+  if (Number.isInteger(n) && n >= 12 && n <= 24) state.rounds = n;
   const g = params.get('g') === 'sphere' ? 'sphere' : params.get('g') === 'plane' ? 'plane' : null;
   if (params.get('r')) {
     state.format = { ...state.format, resolution: resolutionById(params.get('r')!, g ?? undefined) };
@@ -1597,6 +1604,11 @@ async function boot(): Promise<void> {
       return { r: addressTexels[i], g: addressTexels[i + 1], b: addressTexels[i + 2] };
     },
     onViewChange: requestDraw,
+    onEntropyMotion: (dx, dy, dt) => {
+      if (!state.entropyMode) return;
+      const delta = Math.round(dx * 13 + dy * 17 + dt * 7);
+      if (delta !== 0) setSeed(seedAdd(state.seed, delta), { pushUrl: false });
+    },
   });
 
   // Format controls
@@ -1694,6 +1706,31 @@ async function boot(): Promise<void> {
   $('stepHeadDown').addEventListener('click', () => stepHead(-stepSize()));
   $('stepUp').addEventListener('click', () => walk(stepSize()));
   $('stepDown').addEventListener('click', () => walk(-stepSize()));
+
+  const roundsSelect = $<HTMLSelectElement>('philoxRounds');
+  if (roundsSelect) {
+    roundsSelect.value = String(state.rounds);
+    roundsSelect.addEventListener('change', () => {
+      state.rounds = Number(roundsSelect.value);
+      requestDraw();
+      syncUrl();
+      toast(`Philox Cipher configured to ${state.rounds} rounds`);
+    });
+  }
+
+  const entropyBtn = $<HTMLButtonElement>('toggleEntropy');
+  if (entropyBtn) {
+    entropyBtn.addEventListener('click', () => {
+      state.entropyMode = !state.entropyMode;
+      entropyBtn.setAttribute('aria-pressed', String(state.entropyMode));
+      entropyBtn.textContent = state.entropyMode ? 'Entropy: Active' : 'Entropy: Off';
+      toast(
+        state.entropyMode
+          ? 'Entropy Sculpting: Active — move cursor across stage to sculpt coordinates live'
+          : 'Entropy Sculpting: Paused',
+      );
+    });
+  }
 
   // Exports
   $('exportPng').addEventListener('click', () => void exportPng());

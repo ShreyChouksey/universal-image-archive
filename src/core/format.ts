@@ -27,12 +27,6 @@ export interface Resolution {
 }
 
 export const RESOLUTIONS: readonly Resolution[] = [
-  // The first two exceed what any browser can hold as bytes. They are here on
-  // purpose: browsing costs the same at two gigapixels as at 1080p, and a grid
-  // you can wander through but never possess is the clearest statement of what
-  // this archive actually is.
-  { id: 'uhd64k', label: '64K', note: '61440 × 34560 · browse only', width: 61440, height: 34560, geometry: 'plane' },
-  { id: 'uhd32k', label: '32K', note: '30720 × 17280 · browse only', width: 30720, height: 17280, geometry: 'plane' },
   { id: 'uhd16k', label: '16K', note: '15360 × 8640', width: 15360, height: 8640, geometry: 'plane' },
   { id: 'uhd8k', label: '8K UHD', note: '7680 × 4320', width: 7680, height: 4320, geometry: 'plane' },
   { id: 'uhd5k', label: '5K', note: '5120 × 2880', width: 5120, height: 2880, geometry: 'plane' },

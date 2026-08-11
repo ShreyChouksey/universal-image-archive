@@ -505,13 +505,14 @@ test('the container rejects rubbish rather than guessing', () => {
 
 test('capacity gates the grids that cannot be resolved', () => {
   const d = depth(16);
-  const at = (id: string) => formatCapacity({ resolution: grid(id), depth: d }, 16384);
+  const at = (f: ArchiveFormat) => formatCapacity(f, 16384);
 
-  assert.ok(at('uhd4k').materialisable);
-  assert.ok(at('uhd16k').materialisable, '16K is the last that fits');
-  assert.ok(!at('uhd32k').materialisable, '32K exceeds the texture axis');
-  assert.ok(!at('uhd64k').materialisable);
-  assert.match(at('uhd32k').reason, /16,384|axis/);
+  assert.ok(at({ resolution: grid('uhd4k'), depth: d }).materialisable);
+  assert.ok(at({ resolution: grid('uhd16k'), depth: d }).materialisable, '16K is the last that fits');
+
+  const overLimit = { resolution: customResolution(30720, 17280), depth: d };
+  assert.ok(!at(overLimit).materialisable, '30720px exceeds the texture axis');
+  assert.match(at(overLimit).reason, /16,384|axis/);
 
   // A smaller GPU must shrink what is offered.
   assert.ok(!formatCapacity({ resolution: grid('uhd16k'), depth: d }, 8192).materialisable);

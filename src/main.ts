@@ -386,7 +386,15 @@ function updateLaneUI(): void {
 
 function renderSeed(): void {
   const input = $<HTMLInputElement>('seedInput');
-  if (document.activeElement !== input) input.value = seedToHex(state.seed);
+  if (state.mode === 'address') {
+    if (document.activeElement !== input) {
+      input.value = '';
+      input.placeholder = 'No 128-bit seed coordinate — photo lives at full byte address';
+    }
+  } else {
+    input.placeholder = 'Image coordinate, 128-bit hexadecimal';
+    if (document.activeElement !== input) input.value = seedToHex(state.seed);
+  }
   input.dataset.invalid = 'false';
 }
 
@@ -1651,6 +1659,10 @@ async function boot(): Promise<void> {
   $('parkedChip').addEventListener('click', () => void returnToHeld());
 
   $('copySeed').addEventListener('click', async () => {
+    if (state.mode === 'address') {
+      toast('Photos have no 128-bit seed — export as Binary (.uia) or Hex to save its address.');
+      return;
+    }
     await navigator.clipboard.writeText(seedToHex(state.seed));
     toast('Coordinate copied');
   });

@@ -331,7 +331,8 @@ kbd {
 .stage {
   position: relative;
   overflow: hidden;
-  background: #000;
+  background: #080706;
+  padding: 12px;
   cursor: grab;
   touch-action: none;
 }
@@ -344,6 +345,8 @@ kbd {
   display: block;
   width: 100%;
   height: 100%;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
   opacity: 0;
   transition: opacity 400ms var(--ease);
 }

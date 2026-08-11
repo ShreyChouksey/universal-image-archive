@@ -180,8 +180,13 @@ export class Stage {
     const root = this.#canvas.parentElement!;
     this.#dpr = Math.min(window.devicePixelRatio || 1, 2);
     const rect = root.getBoundingClientRect();
-    this.#viewportW = Math.max(1, Math.round(rect.width * this.#dpr));
-    this.#viewportH = Math.max(1, Math.round(rect.height * this.#dpr));
+    const style = window.getComputedStyle(root);
+    const padX = parseFloat(style.paddingLeft || '0') + parseFloat(style.paddingRight || '0');
+    const padY = parseFloat(style.paddingTop || '0') + parseFloat(style.paddingBottom || '0');
+    const width = Math.max(1, rect.width - padX);
+    const height = Math.max(1, rect.height - padY);
+    this.#viewportW = Math.max(1, Math.round(width * this.#dpr));
+    this.#viewportH = Math.max(1, Math.round(height * this.#dpr));
     this.#renderer.resize(this.#viewportW, this.#viewportH);
   }
 

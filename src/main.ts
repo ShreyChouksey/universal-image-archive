@@ -238,7 +238,7 @@ function updateTelemetryUI(): void {
     set('telemFrameMs', `${sample.frameTimeMs} ms render compute`);
     set('telemVram', sample.vramHuman);
     set('telemHeap', sample.jsHeapHuman ? `JS Heap: ${sample.jsHeapHuman}` : 'JS Heap: Unrestricted');
-    set('telemThroughput', `${sample.throughputMpxPerSec} Mpx/s`);
+    set('telemThroughput', sample.throughputHuman);
     set('telemRounds', `Philox ${state.rounds} Feistel Rounds`);
     set('telemGpu', sample.gpuAdapter);
     set('telemMaxTex', `Max Texture: ${sample.maxTextureSize}px`);

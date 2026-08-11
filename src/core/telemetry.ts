@@ -16,14 +16,17 @@ export interface TelemetrySample {
   jsHeapBytes: number | null;
   jsHeapHuman: string | null;
   throughputMpxPerSec: number;
+  throughputHuman: string;
   hardwareToll: 'optimal' | 'moderate' | 'heavy' | 'extreme';
   tollWarning: string | null;
   gpuAdapter: string;
   maxTextureSize: number;
+  exceedsHardwareLimit: boolean;
 }
 
 export class TelemetryMonitor {
   #frameCount = 0;
+  #lastFrameTimestamp = performance.now();
   #lastFpsUpdate = performance.now();
   #currentFps = 60;
   #lastFrameDurationMs = 0.8;
@@ -42,17 +45,23 @@ export class TelemetryMonitor {
   recordFrame(renderTimeMs: number): void {
     this.#frameCount++;
     this.#lastFrameDurationMs = Math.max(0.01, renderTimeMs);
+    this.#lastFrameTimestamp = performance.now();
 
-    const now = performance.now();
-    const elapsed = now - this.#lastFpsUpdate;
+    const elapsed = this.#lastFrameTimestamp - this.#lastFpsUpdate;
     if (elapsed >= 500) {
       this.#currentFps = Math.round((this.#frameCount * 1000) / elapsed);
       this.#frameCount = 0;
-      this.#lastFpsUpdate = now;
+      this.#lastFpsUpdate = this.#lastFrameTimestamp;
     }
   }
 
   sample(format: ArchiveFormat, _rounds: number): TelemetrySample {
+    const now = performance.now();
+    // If no frames rendered in last 1.5s, report idle 60 FPS
+    if (now - this.#lastFrameTimestamp > 1500) {
+      this.#currentFps = 60;
+    }
+
     const { width, height } = format.resolution;
     const pixels = width * height;
     const bpc = format.depth.bpc;
@@ -62,17 +71,28 @@ export class TelemetryMonitor {
     const bytesPerChannel = bpc > 8 ? 2 : 1;
     const vramBytes = pixels * channels * bytesPerChannel;
 
-    // Throughput: total pixels generated per second based on render time
-    const frameSec = Math.max(0.0001, this.#lastFrameDurationMs / 1000);
-    const throughputMpxPerSec = (pixels / 1e6) / frameSec;
+    const exceedsHardwareLimit = width > this.#maxTextureDimension || height > this.#maxTextureDimension;
+
+    // Throughput: total pixels generated per second based on real render time.
+    // If resolution exceeds GPU max texture dimension, GPU cannot allocate texture, so real throughput is 0.
+    let throughputMpxPerSec = 0;
+    let throughputHuman = '0.0 Mpx/s';
+
+    if (!exceedsHardwareLimit) {
+      const frameSec = Math.max(0.001, this.#lastFrameDurationMs / 1000);
+      throughputMpxPerSec = (pixels / 1e6) / frameSec;
+      throughputHuman = formatThroughput(throughputMpxPerSec);
+    } else {
+      throughputHuman = '0.0 Mpx/s (Limit Exceeded)';
+    }
 
     // Evaluate hardware load tier & warning
     let hardwareToll: TelemetrySample['hardwareToll'] = 'optimal';
     let tollWarning: string | null = null;
 
-    if (width > this.#maxTextureDimension || height > this.#maxTextureDimension) {
+    if (exceedsHardwareLimit) {
       hardwareToll = 'extreme';
-      tollWarning = `Resolution (${width}×${height}) exceeds GPU hardware texture limit (${this.#maxTextureDimension}px). Browsers cap WebGPU bindings at ${this.#maxTextureDimension}px.`;
+      tollWarning = `Resolution (${width}×${height}) exceeds GPU hardware texture limit (${this.#maxTextureDimension}px). WebGPU cannot bind textures above ${this.#maxTextureDimension}px.`;
     } else if (vramBytes > 2 * 1024 * 1024 * 1024) {
       // > 2 GB single buffer
       hardwareToll = 'extreme';
@@ -96,10 +116,12 @@ export class TelemetryMonitor {
       jsHeapBytes: heap,
       jsHeapHuman: heap !== null ? formatBytes(heap) : null,
       throughputMpxPerSec: Number(throughputMpxPerSec.toFixed(1)),
+      throughputHuman,
       hardwareToll,
       tollWarning,
       gpuAdapter: this.#adapterName,
       maxTextureSize: this.#maxTextureDimension,
+      exceedsHardwareLimit,
     };
   }
 
@@ -121,4 +143,11 @@ export function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MiB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GiB`;
+}
+
+export function formatThroughput(mpxPerSec: number): string {
+  if (mpxPerSec >= 1000) {
+    return `${(mpxPerSec / 1000).toFixed(2)} Gpx/s`;
+  }
+  return `${mpxPerSec.toFixed(1)} Mpx/s`;
 }

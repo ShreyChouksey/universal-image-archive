@@ -379,7 +379,7 @@ function updateLaneUI(): void {
   const parked = state.mode === 'seed' && state.held.kind !== 'none';
   const chip = $('parkedChip');
   chip.hidden = !parked;
-  if (parked) $('parkedLabel').textContent = `${heldLabel()} is still loaded —`;
+  if (parked) $('parkedLabel').textContent = `${escapeHtml(heldLabel())} is still loaded —`;
 }
 
 function renderSeed(): void {
@@ -455,20 +455,11 @@ function renderSeedLocation(): void {
     html += '</span></div>';
   }
 
-  if (state.held.kind !== 'none') {
-    html +=
-      `<div class="address-meta"><span class="dim">still loaded: ${escapeHtml(heldLabel())} —</span> ` +
-      '<button class="ghost" type="button" id="heldReturn">return to it</button> ' +
-      '<button class="ghost" type="button" id="heldDiscard">discard</button></div>';
-  }
-
   $('addressReadout').innerHTML = html;
 
   if (cap.materialisable) {
     document.getElementById('materialise')?.addEventListener('click', () => void resolveAddress());
   }
-  document.getElementById('heldReturn')?.addEventListener('click', () => void returnToHeld());
-  document.getElementById('heldDiscard')?.addEventListener('click', () => void discardHeld());
 
   for (const id of ['stepUp', 'stepDown'] as const) {
     $<HTMLButtonElement>(id).disabled = false;
@@ -531,21 +522,11 @@ function renderAddressPlaceholder(): void {
     ? '<span class="dim">not materialised —</span> <button class="ghost" type="button" id="materialise">resolve</button>'
     : `<span class="dim">too large to resolve on this GPU</span>`;
 
-  // A loaded image parked while the user travels the coordinate lane. The way
-  // back — the whole point of parking it rather than destroying it.
-  if (state.mode === 'seed' && state.held.kind !== 'none') {
-    html +=
-      `<br /><span class="dim">still loaded: ${escapeHtml(heldLabel())} —</span> ` +
-      '<button class="ghost" type="button" id="heldReturn">return to it</button> ' +
-      '<button class="ghost" type="button" id="heldDiscard">discard</button>';
-  }
   $('addressReadout').innerHTML = html;
 
   if (cap.materialisable) {
     $('materialise').addEventListener('click', () => void resolveAddress());
   }
-  document.getElementById('heldReturn')?.addEventListener('click', () => void returnToHeld());
-  document.getElementById('heldDiscard')?.addEventListener('click', () => void discardHeld());
   for (const id of ['stepUp', 'stepDown', 'exportPng', 'exportAddress', 'locate'] as const) {
     const el = document.getElementById(id) as HTMLButtonElement | null;
     if (!el) continue;
@@ -1665,7 +1646,8 @@ async function boot(): Promise<void> {
   });
   seedInput.addEventListener('blur', renderSeed);
 
-  $('parkedChip').addEventListener('click', () => void returnToHeld());
+  $('parkedReturn')?.addEventListener('click', () => void returnToHeld());
+  $('parkedDiscard')?.addEventListener('click', () => void discardHeld());
 
   $('copySeed').addEventListener('click', async () => {
     if (state.mode === 'address') {

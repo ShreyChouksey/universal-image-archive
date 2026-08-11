@@ -253,8 +253,27 @@ function updateTelemetryUI(): void {
 
     const warnEl = document.getElementById('telemetryWarning');
     if (warnEl) {
-      if (sample.tollWarning) {
-        warnEl.textContent = sample.tollWarning;
+      if (sample.warningDetails) {
+        const details = sample.warningDetails;
+        warnEl.innerHTML = `
+          <div class="telemetry-modal__warning-title">${details.title}</div>
+          ${
+            details.frozen.length > 0
+              ? `<div class="telemetry-modal__warning-section">
+                  <span class="telemetry-modal__badge telemetry-modal__badge--frozen">FROZEN</span>
+                  ${details.frozen.join(' · ')}
+                </div>`
+              : ''
+          }
+          ${
+            details.active.length > 0
+              ? `<div class="telemetry-modal__warning-section">
+                  <span class="telemetry-modal__badge telemetry-modal__badge--active">ACTIVE</span>
+                  ${details.active.join(' · ')}
+                </div>`
+              : ''
+          }
+        `;
         warnEl.hidden = false;
       } else {
         warnEl.hidden = true;

@@ -8,6 +8,12 @@
 
 import type { ArchiveFormat } from './format';
 
+export interface WarningDetails {
+  title: string;
+  frozen: string[];
+  active: string[];
+}
+
 export interface TelemetrySample {
   fps: number;
   frameTimeMs: number;
@@ -19,6 +25,7 @@ export interface TelemetrySample {
   throughputHuman: string;
   hardwareToll: 'optimal' | 'moderate' | 'heavy' | 'extreme';
   tollWarning: string | null;
+  warningDetails: WarningDetails | null;
   gpuAdapter: string;
   maxTextureSize: number;
   exceedsHardwareLimit: boolean;
@@ -57,7 +64,6 @@ export class TelemetryMonitor {
 
   sample(format: ArchiveFormat, _rounds: number): TelemetrySample {
     const now = performance.now();
-    // If no frames rendered in last 1.5s, report idle 60 FPS
     if (now - this.#lastFrameTimestamp > 1500) {
       this.#currentFps = 60;
     }
@@ -73,8 +79,6 @@ export class TelemetryMonitor {
 
     const exceedsHardwareLimit = width > this.#maxTextureDimension || height > this.#maxTextureDimension;
 
-    // Throughput: total pixels generated per second based on real render time.
-    // If resolution exceeds GPU max texture dimension, GPU cannot allocate texture, so real throughput is 0.
     let throughputMpxPerSec = 0;
     let throughputHuman = '0.0 Mpx/s';
 
@@ -86,23 +90,42 @@ export class TelemetryMonitor {
       throughputHuman = '0.0 Mpx/s (Limit Exceeded)';
     }
 
-    // Evaluate hardware load tier & warning
     let hardwareToll: TelemetrySample['hardwareToll'] = 'optimal';
     let tollWarning: string | null = null;
+    let warningDetails: WarningDetails | null = null;
 
     if (exceedsHardwareLimit) {
       hardwareToll = 'extreme';
-      tollWarning = `Grid (${width}×${height}) exceeds WebGPU single-texture limit (${this.#maxTextureDimension}px).\n• FROZEN: Resolve (Address Materialisation) & .uia Binary Export.\n• FULLY ACTIVE: Seed Browsing (Viewport Shader), PNG Export, Hex & Decimal Exports.`;
+      tollWarning = `Grid (${width}×${height}) exceeds WebGPU single-texture limit (${this.#maxTextureDimension}px).`;
+      warningDetails = {
+        title: `Grid size (${width.toLocaleString()} × ${height.toLocaleString()}) exceeds WebGPU 2D texture limit (${this.#maxTextureDimension.toLocaleString()}px).`,
+        frozen: [
+          'Resolve (Address Materialisation)',
+          'Binary Archive Export (.uia)',
+        ],
+        active: [
+          'Procedural Seed Browsing (Viewport Shader)',
+          'PNG Image Export (Chunked Rasteriser)',
+          'Seed Hexadecimal & Decimal Exports',
+        ],
+      };
     } else if (vramBytes > 2 * 1024 * 1024 * 1024) {
-      // > 2 GB single buffer
       hardwareToll = 'extreme';
-      tollWarning = `Extreme memory toll (${formatBytes(vramBytes)} per frame). Exceeds typical browser allocation limits even on high-end hardware.`;
+      tollWarning = `Extreme memory toll (${formatBytes(vramBytes)} per frame).`;
+      warningDetails = {
+        title: `Extreme single-frame VRAM memory toll (${formatBytes(vramBytes)}).`,
+        frozen: [],
+        active: ['All features active — monitor system memory footprint.'],
+      };
     } else if (vramBytes > 500 * 1024 * 1024) {
-      // > 500 MB
       hardwareToll = 'heavy';
-      tollWarning = `Heavy GPU memory load (${formatBytes(vramBytes)}). Multi-gigapixel compute workload active.`;
+      tollWarning = `Heavy GPU memory load (${formatBytes(vramBytes)}).`;
+      warningDetails = {
+        title: `Heavy GPU memory workload (${formatBytes(vramBytes)} per frame).`,
+        frozen: [],
+        active: ['All features active — multi-gigapixel compute mode.'],
+      };
     } else if (vramBytes > 50 * 1024 * 1024) {
-      // > 50 MB
       hardwareToll = 'moderate';
     }
 
@@ -119,6 +142,7 @@ export class TelemetryMonitor {
       throughputHuman,
       hardwareToll,
       tollWarning,
+      warningDetails,
       gpuAdapter: this.#adapterName,
       maxTextureSize: this.#maxTextureDimension,
       exceedsHardwareLimit,

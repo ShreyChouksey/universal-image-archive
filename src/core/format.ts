@@ -105,7 +105,7 @@ export interface ArchiveFormat {
 }
 
 /** Named explicitly rather than by index, so reordering the list cannot move it. */
-const DEFAULT_RESOLUTION = RESOLUTIONS.find((r) => r.id === 'uhd4k')!;
+const DEFAULT_RESOLUTION = RESOLUTIONS.find((r) => r.id === 'babelia')!;
 const DEFAULT_SPHERE = RESOLUTIONS.find((r) => r.id === 'sph4k')!;
 
 export const DEFAULT_FORMAT: ArchiveFormat = {

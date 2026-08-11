@@ -170,8 +170,13 @@
         </p>
 
         <div class="dropzone" id="dropzone" tabindex="0" role="button">
-          <span class="dropzone__title">Drop an image</span>
-          <span class="dropzone__hint">or click to choose — a picture, or an exported address (.uia, hex or decimal .txt)</span>
+          <div class="dropzone__preview" id="dropzonePreview" hidden>
+            <img id="dropzoneImg" alt="Preview" />
+          </div>
+          <div class="dropzone__info">
+            <span class="dropzone__title">Drop an image</span>
+            <span class="dropzone__hint">or click to choose — a picture, or an exported address (.uia, hex or decimal .txt)</span>
+          </div>
           <input type="file" id="fileInput" accept="image/*,.uia,.txt,text/plain" hidden />
         </div>
 
@@ -181,60 +186,65 @@
           <p class="hint" id="placementChoiceHint"></p>
         </div>
 
-        <div class="field">
-          <label class="label" for="fit">Fit</label>
-          <select id="fit">
-            <option value="contain">Contain — whole image, letterboxed</option>
-            <option value="cover">Cover — fill the grid, crop the overflow</option>
-            <option value="stretch">Stretch — distort to the grid</option>
-          </select>
-        </div>
-
-        <div class="field">
-          <label class="label" for="flip">Orientation</label>
-          <select id="flip">
-            <option value="none">As supplied</option>
-            <option value="horizontal">Mirrored horizontally</option>
-            <option value="vertical">Mirrored vertically</option>
-            <option value="both">Rotated 180°</option>
-          </select>
-        </div>
-
-        <div class="field field--split">
-          <div>
-            <label class="label" for="fill">Surround</label>
-            <select id="fill">
-              <option value="#000000">Black</option>
-              <option value="archive">The archive itself</option>
-              <option value="#ffffff">White</option>
-              <option value="#808080">Mid grey</option>
-            </select>
-          </div>
-          <div>
-            <label class="label" for="frame">Margin</label>
-            <input type="number" id="frame" min="0" max="512" step="8" value="0" />
-          </div>
-        </div>
-
-        <div class="field" id="placementField" hidden>
-          <label class="label" for="placementFov">Lens</label>
-          <input type="number" id="placementFov" min="10" max="170" step="5" value="90" />
-          <p class="hint">
-            Horizontal field of view the supplied image is placed at, in degrees. Everything
-            outside it is surround.
-          </p>
-        </div>
-
-        <div class="field">
-          <label class="label" for="lowBits">Low bits</label>
-          <select id="lowBits">
-            <option value="replicate">Replicate — exact 8-bit promotion</option>
-            <option value="noise">Archive noise — a more typical address</option>
-          </select>
-          <p class="hint" id="lowBitsHint"></p>
-        </div>
-
         <button class="primary" type="button" id="locate" disabled>Locate in archive</button>
+
+        <details class="advanced-options">
+          <summary class="advanced-options__summary">Advanced Encoding Options</summary>
+          <div class="advanced-options__content">
+            <div class="field">
+              <label class="label" for="fit">Fit</label>
+              <select id="fit">
+                <option value="contain">Contain — whole image, letterboxed</option>
+                <option value="cover">Cover — fill the grid, crop the overflow</option>
+                <option value="stretch">Stretch — distort to the grid</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label class="label" for="flip">Orientation</label>
+              <select id="flip">
+                <option value="none">As supplied</option>
+                <option value="horizontal">Mirrored horizontally</option>
+                <option value="vertical">Mirrored vertically</option>
+                <option value="both">Rotated 180°</option>
+              </select>
+            </div>
+
+            <div class="field field--split">
+              <div>
+                <label class="label" for="fill">Surround</label>
+                <select id="fill">
+                  <option value="#000000">Black</option>
+                  <option value="archive">The archive itself</option>
+                  <option value="#ffffff">White</option>
+                  <option value="#808080">Mid grey</option>
+                </select>
+              </div>
+              <div>
+                <label class="label" for="frame">Margin</label>
+                <input type="number" id="frame" min="0" max="512" step="8" value="0" />
+              </div>
+            </div>
+
+            <div class="field" id="placementField" hidden>
+              <label class="label" for="placementFov">Lens</label>
+              <input type="number" id="placementFov" min="10" max="170" step="5" value="90" />
+              <p class="hint">
+                Horizontal field of view the supplied image is placed at, in degrees. Everything
+                outside it is surround.
+              </p>
+            </div>
+
+            <div class="field">
+              <label class="label" for="lowBits">Low bits</label>
+              <select id="lowBits">
+                <option value="replicate">Replicate — exact 8-bit promotion</option>
+                <option value="noise">Archive noise — a more typical address</option>
+              </select>
+              <p class="hint" id="lowBitsHint"></p>
+            </div>
+          </div>
+        </details>
 
         <div class="verdict" id="verdict" hidden>
           <p class="verdict__word" id="verdictWord">—</p>

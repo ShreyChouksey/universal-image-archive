@@ -944,19 +944,29 @@ function renderPlacementChoice(): void {
 function stageForSearch(file: File): void {
   pendingFile = file;
   pendingDims = null;
+  const dropzone = $('dropzone');
+  dropzone.dataset.loaded = 'true';
+  dropzone.querySelector<HTMLElement>('.dropzone__title')!.textContent = file.name;
+  dropzone.querySelector<HTMLElement>('.dropzone__hint')!.textContent = bytesHuman(file.size);
+
+  const previewBox = document.getElementById('dropzonePreview');
+  const previewImg = document.getElementById('dropzoneImg') as HTMLImageElement | null;
+  if (previewBox && previewImg && file.type.startsWith('image/')) {
+    previewImg.src = URL.createObjectURL(file);
+    previewBox.hidden = false;
+  }
+
   void createImageBitmap(file)
     .then((bitmap) => {
       pendingDims = { width: bitmap.width, height: bitmap.height };
       bitmap.close();
+      dropzone.querySelector<HTMLElement>('.dropzone__hint')!.textContent =
+        `${pendingDims.width} × ${pendingDims.height} · ${bytesHuman(file.size)}`;
       renderPlacementChoice();
     })
     .catch(() => {
       $('placementChoiceField').hidden = true;
     });
-  const dropzone = $('dropzone');
-  dropzone.dataset.loaded = 'true';
-  dropzone.querySelector('.dropzone__title')!.textContent = file.name;
-  dropzone.querySelector('.dropzone__hint')!.textContent = bytesHuman(file.size);
   const cap = capacity();
   $<HTMLButtonElement>('locate').disabled = !cap.materialisable;
   $('searchStatus').textContent = cap.materialisable ? '' : cap.reason;

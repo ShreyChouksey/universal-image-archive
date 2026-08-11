@@ -413,7 +413,7 @@ function renderSeedLocation(): void {
   const cap = capacity();
   const scale = archiveScale(state.format);
 
-  let headBytes = seedHeadBytes(state.format, state.seed, 16);
+  let headBytes = seedHeadBytes(state.format, state.seed, 16, state.rounds);
   if (state.headOffset !== 0) {
     const headSeed = seedFromHex(hex(headBytes)) ?? (new Uint32Array(4) as Seed);
     const updated = seedAdd(headSeed, state.headOffset);
@@ -424,7 +424,7 @@ function renderSeedLocation(): void {
   let tail: string;
   try {
     head = hex(headBytes);
-    tail = hex(seedTailBytes(state.format, state.seed, state.offset, 16));
+    tail = hex(seedTailBytes(state.format, state.seed, state.offset, 16, state.rounds));
   } catch {
     renderAddressPlaceholder();
     return;

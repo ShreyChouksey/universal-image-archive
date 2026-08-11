@@ -210,8 +210,8 @@ export function gridFunFacts(format: ArchiveFormat): FunFact[] {
       fact: `Because this <strong class="fact-highlight">${format.resolution.label}</strong> grid (<strong class="fact-highlight">10${superscriptOf(exp)}</strong> images) forms an exact mathematical bijection over all ${width} × ${height} ${format.depth.label} pixel matrices, every photo of you ever taken already exists at a precise coordinate in this grid.`,
     },
     {
-      title: 'Thermodynamic Boundary',
-      fact: `Finding a specific target image in this <strong class="fact-highlight">${format.resolution.label}</strong> archive by brute force requires searching 2¹²⁸ seeds — taking more thermodynamic energy than boiling Earth's oceans <strong class="fact-highlight">400× over</strong>.`,
+      title: 'Generator Seed Sparsity',
+      fact: `The 128-bit generator seed accesses 2¹²⁸ (3.4 × 10³⁸) images. In this <strong class="fact-highlight">${format.resolution.label}</strong> grid of 10${superscriptOf(exp)} images, seeds can reach only <strong class="fact-highlight">1 in 10${superscriptOf(exp - 38)}</strong> possible image states — the rest exist exclusively via full byte addresses.`,
     },
     {
       title: 'Quantum Nanometer Scale',

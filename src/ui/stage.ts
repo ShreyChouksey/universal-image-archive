@@ -97,6 +97,7 @@ export class Stage {
 
     root.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
+      if ((e.target as HTMLElement).closest('button, select, input, .parked')) return;
       this.#dragging = true;
       this.#lastPointer = { x: e.clientX, y: e.clientY };
       root.setPointerCapture(e.pointerId);

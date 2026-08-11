@@ -1646,6 +1646,10 @@ async function boot(): Promise<void> {
   });
   seedInput.addEventListener('blur', renderSeed);
 
+  const parkedChip = $('parkedChip');
+  if (parkedChip) {
+    parkedChip.addEventListener('pointerdown', (e) => e.stopPropagation());
+  }
   $('parkedReturn')?.addEventListener('click', () => void returnToHeld());
   $('parkedDiscard')?.addEventListener('click', () => void discardHeld());
 

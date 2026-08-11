@@ -1683,7 +1683,9 @@ async function boot(): Promise<void> {
 
   function stepHead(delta: number): void {
     if (state.mode === 'seed') {
-      setSeed(seedAdd(state.seed, delta));
+      state.headOffset += delta;
+      renderSeedLocation();
+      toast(`Head (first digit) stepped by ${delta > 0 ? '+' : ''}${delta.toLocaleString('en-US')}`);
     } else if (base) {
       base.headOffset = (base.headOffset ?? 0) + delta;
       const headSeed = seedFromHex(hex(base.head)) ?? (new Uint32Array(4) as Seed);

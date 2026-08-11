@@ -130,6 +130,9 @@ export interface FunFact {
 }
 
 function dnaOrganismComparison(basePairs: number): string {
+  if (basePairs < 1_000) {
+    return `${basePairs} base pairs — a tiny synthetic oligonucleotide strand`;
+  }
   if (basePairs < 100_000) {
     return `${(basePairs / 1000).toFixed(1)}k base pairs — about 1/5th the genome of a Mycoplasma bacterium`;
   }
@@ -146,8 +149,11 @@ function dnaOrganismComparison(basePairs: number): string {
 }
 
 function paperRibbonComparison(metres: number): string {
+  if (metres < 1) {
+    return `${(metres * 100).toFixed(1)} cm — roughly the width of a smartphone screen`;
+  }
   if (metres < 1000) {
-    return `${metres.toFixed(0)} meters — ${(metres / 100).toFixed(1)}× the length of a professional football field`;
+    return `${metres.toFixed(1)} meters — ${(metres / 100).toFixed(1)}× the length of a professional football field`;
   }
   if (metres < 100_000) {
     return `${(metres / 1000).toFixed(1)} km — stretching across the width of Paris`;
@@ -160,6 +166,9 @@ function paperRibbonComparison(metres: number): string {
 
 function quantumNanoComparison(bytes: number): string {
   const nm = Math.sqrt(bytes);
+  if (nm < 10) {
+    return `${nm.toFixed(1)} nanometers across — smaller than a single hemoglobin protein molecule`;
+  }
   if (nm < 500) {
     return `${nm.toFixed(1)} nanometers across — roughly the diameter of a single influenza virus particle`;
   }

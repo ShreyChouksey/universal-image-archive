@@ -40,6 +40,11 @@ export const RESOLUTIONS: readonly Resolution[] = [
   { id: 'px256', label: '256 × 256', note: '65,536 px · 1:1 square', width: 256, height: 256, geometry: 'plane' },
   { id: 'px128', label: '128 × 128', note: '16,384 px · 1:1 square', width: 128, height: 128, geometry: 'plane' },
   { id: 'px64', label: '64 × 64', note: '4,096 px · 1:1 square', width: 64, height: 64, geometry: 'plane' },
+  { id: 'px32', label: '32 × 32', note: '1,024 px · 1:1 square', width: 32, height: 32, geometry: 'plane' },
+  { id: 'px16', label: '16 × 16', note: '256 px · 1:1 square', width: 16, height: 16, geometry: 'plane' },
+  { id: 'px8', label: '8 × 8', note: '64 px · 1:1 square', width: 8, height: 8, geometry: 'plane' },
+  { id: 'px4', label: '4 × 4', note: '16 px · 1:1 square', width: 4, height: 4, geometry: 'plane' },
+  { id: 'px2', label: '2 × 2', note: '4 px · 1:1 square', width: 2, height: 2, geometry: 'plane' },
 
   // Equirectangular, always 2:1 — a full turn of longitude against half a turn
   // of latitude. 8192 is not arbitrary: it is WebGPU's guaranteed

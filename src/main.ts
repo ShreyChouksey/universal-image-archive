@@ -1637,11 +1637,13 @@ async function boot(): Promise<void> {
   // Coordinate entry
   const seedInput = $<HTMLInputElement>('seedInput');
   seedInput.addEventListener('input', () => {
-    // Hexadecimal first, so a coordinate pasted in is read as itself. Anything
-    // else is a phrase, hashed to the coordinate it names — which makes typing
-    // in this field a way to travel rather than a way to get an error.
-    const text = seedInput.value.trim();
+    let text = seedInput.value.trim();
     if (!text) return;
+    // If a full URL is pasted (e.g. http://localhost:5274/#c=41854b...), extract the 'c' coordinate parameter.
+    if (text.includes('#c=') || text.includes('?c=')) {
+      const match = text.match(/[#?]c=([0-9a-fA-F]{32})/);
+      if (match && match[1]) text = match[1];
+    }
     setSeed(seedFromHex(text) ?? seedFromPhrase(text));
   });
   seedInput.addEventListener('blur', renderSeed);

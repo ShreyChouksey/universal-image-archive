@@ -1037,16 +1037,6 @@ async function renderAddressPanel(): Promise<void> {
   ]
     .map((a) => `<div><dt>${a.label}</dt><dd>${a.value}</dd></div>`)
     .join('');
-
-  $('exportHint').textContent =
-    scale.bytes > BIGINT_MAX_BYTES
-      ? `Hexadecimal is exact and immediate at any size. Base ten is out of reach here: the ` +
-        `engine's integers stop at ${(BIGINT_MAX_BYTES / 1048576).toFixed(0)} MiB of address and this one is ` +
-        `${bytesHuman(scale.bytes)}.`
-      : `Hexadecimal is exact and immediate. Decimal is the same number in base ten — ` +
-        `${group(scale.cardinalityDigits)} digits, about ${describeDecimalCost(scale.bytes)} to work out, ` +
-        `because the digit in any position depends on all ${bytesHuman(scale.bytes)}.`;
-  $<HTMLButtonElement>('exportDecimal').disabled = scale.bytes > BIGINT_MAX_BYTES;
 }
 
 // ---------------------------------------------------------------------------
@@ -1684,9 +1674,6 @@ async function boot(): Promise<void> {
   // Exports
   $('exportPng').addEventListener('click', () => void exportPng());
   $('exportAddress').addEventListener('click', () => void exportAddress());
-  $('exportAddress2').addEventListener('click', () => void exportAddress());
-  $('exportHex').addEventListener('click', () => void exportHex());
-  $('exportDecimal').addEventListener('click', () => void exportDecimal());
   document.getElementById('exportHexBench')?.addEventListener('click', () => void exportHex());
   document.getElementById('exportDecimalBench')?.addEventListener('click', () => void exportDecimal());
   $('addressResolve').addEventListener('click', async () => {

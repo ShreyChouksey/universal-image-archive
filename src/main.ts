@@ -596,16 +596,8 @@ function setSeed(seed: Seed, { pushUrl = true, offset = 0 } = {}): void {
   addressTexels = null;
   renderer.setAddressTexture(1, 1, null);
 
-  // A seed-derived address sitting exactly on its coordinate is trivially
-  // recomputable, so travel simply drops it. Anything else is work or luck that
-  // travel must not destroy — and it stays in the variant it already is, so it
-  // keeps remembering where it came from.
   const parking = wasAddressMode && state.held.kind !== 'none';
-  if (state.held.kind === 'seed' && state.held.offset === 0) {
-    state.held = { kind: 'none' };
-    void client.release();
-  }
-  if (parking) toast(`${heldLabel()} is still loaded — the chip on the stage returns to it`);
+  if (parking) toast(`${heldLabel()} is still loaded — click return on stage to view it`);
 
   renderSeed();
   renderSeedLocation();

@@ -1651,12 +1651,8 @@ async function boot(): Promise<void> {
   $('parkedChip').addEventListener('click', () => void returnToHeld());
 
   $('copySeed').addEventListener('click', async () => {
-    await navigator.clipboard.writeText(location.href);
-    toast(
-      coordinateNamesStage()
-        ? 'Link copied'
-        : 'Link copied — it names the coordinate lane, not this picture. Export the address to carry the picture.',
-    );
+    await navigator.clipboard.writeText(seedToHex(state.seed));
+    toast('Coordinate copied');
   });
 
   function stepCoordinate(delta: number): void {

@@ -167,9 +167,12 @@ export class Stage {
   }
 
   get fitZoom(): number {
+    const margin = 24 * this.#dpr;
+    const availW = Math.max(1, this.#viewportW - margin * 2);
+    const availH = Math.max(1, this.#viewportH - margin * 2);
     return Math.min(
-      this.#viewportW / this.#format.resolution.width,
-      this.#viewportH / this.#format.resolution.height,
+      availW / this.#format.resolution.width,
+      availH / this.#format.resolution.height,
     );
   }
 

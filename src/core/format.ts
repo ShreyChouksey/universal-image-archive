@@ -53,8 +53,8 @@ export const RESOLUTIONS: readonly Resolution[] = [
 ];
 
 export const GEOMETRIES: ReadonlyArray<{ id: Geometry; label: string; note: string }> = [
-  { id: 'plane', label: 'Plane', note: 'a window — one view, framed' },
-  { id: 'sphere', label: 'Sphere', note: 'a standpoint — everything visible from one place' },
+  { id: 'plane', label: 'Plane', note: 'framed window view' },
+  { id: 'sphere', label: 'Sphere', note: '360° standpoint view' },
 ];
 
 export function resolutionsFor(geometry: Geometry): readonly Resolution[] {

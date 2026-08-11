@@ -1671,6 +1671,19 @@ async function boot(): Promise<void> {
     setSeed(seedAdd(state.seed, delta));
   }
 
+  function stepHead(delta: number): void {
+    if (state.mode === 'seed') {
+      setSeed(seedAdd(state.seed, delta));
+    } else if (base) {
+      const headSeed = seedFromHex(hex(base.head)) ?? (new Uint32Array(4) as Seed);
+      const updated = seedAdd(headSeed, delta);
+      base.head = new Uint8Array(updated.buffer, updated.byteOffset, updated.byteLength);
+      renderAddressLocation();
+      requestDraw();
+      toast(`Head (first digit) stepped by ${delta > 0 ? '+' : ''}${delta.toLocaleString('en-US')}`);
+    }
+  }
+
   // Transport
   $('randomSeed').addEventListener('click', () => setSeed(randomSeed()));
   $('nextSeed').addEventListener('click', () => stepCoordinate(stepSize()));
@@ -1678,6 +1691,8 @@ async function boot(): Promise<void> {
   $('stepSize').addEventListener('change', updateLaneUI);
   $('stepSize').addEventListener('input', updateLaneUI);
   $('play').addEventListener('click', () => setPlaying(!state.playing));
+  $('stepHeadUp').addEventListener('click', () => stepHead(stepSize()));
+  $('stepHeadDown').addEventListener('click', () => stepHead(-stepSize()));
   $('stepUp').addEventListener('click', () => walk(stepSize()));
   $('stepDown').addEventListener('click', () => walk(-stepSize()));
 

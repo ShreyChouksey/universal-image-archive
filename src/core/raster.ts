@@ -9,7 +9,7 @@
  */
 
 import type { ArchiveFormat } from './format';
-import { philox4x32_10, philoxScratch, type Seed } from './philox';
+import { philox4x32, philox4x32_10, philoxScratch, type Seed } from './philox';
 
 export type LowBits = 'replicate' | 'noise';
 
@@ -115,6 +115,7 @@ export function fillSurroundFromArchive(
   seed: Seed,
   bytes: Uint8Array,
   mask: Uint8Array | null,
+  rounds = 12,
 ): void {
   const n = format.resolution.width * format.resolution.height;
   const scratch = philoxScratch();
@@ -122,7 +123,7 @@ export function fillSurroundFromArchive(
 
   for (let i = 0; i < n; i++) {
     if (mask && mask[i]) continue;
-    philox4x32_10(scratch, i >>> 0, (i / 0x100000000) >>> 0, seed[2], seed[3], seed[0], seed[1]);
+    philox4x32(scratch, i >>> 0, (i / 0x100000000) >>> 0, seed[2], seed[3], seed[0], seed[1], rounds);
     if (wide) {
       const o = i * 6;
       const r = scratch[0] & 0xffff;

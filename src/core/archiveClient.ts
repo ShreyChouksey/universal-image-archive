@@ -63,8 +63,8 @@ export class ArchiveClient {
     });
   }
 
-  async materialise(format: ArchiveFormat, seed: Seed, onProgress?: (p: Progress) => void): Promise<void> {
-    await this.#send({ kind: 'materialise', format, seed: Array.from(seed) }, [], onProgress);
+  async materialise(format: ArchiveFormat, seed: Seed, onProgress?: (p: Progress) => void, rounds?: number): Promise<void> {
+    await this.#send({ kind: 'materialise', format, seed: Array.from(seed), rounds }, [], onProgress);
   }
 
   async search(
@@ -73,9 +73,10 @@ export class ArchiveClient {
     options: SearchOptions,
     seed: Seed,
     onProgress?: (p: Progress) => void,
+    rounds?: number,
   ): Promise<void> {
     await this.#send(
-      { kind: 'search', format, bitmap, options, seed: Array.from(seed) },
+      { kind: 'search', format, bitmap, options, seed: Array.from(seed), rounds },
       [bitmap],
       onProgress,
     );

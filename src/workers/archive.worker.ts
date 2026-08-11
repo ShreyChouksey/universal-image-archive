@@ -51,7 +51,7 @@ export interface SearchOptions {
 }
 
 export type Request =
-  | { id: number; kind: 'materialise'; format: ArchiveFormat; seed: number[] }
+  | { id: number; kind: 'materialise'; format: ArchiveFormat; seed: number[]; rounds?: number }
   | {
       id: number;
       kind: 'search';
@@ -59,6 +59,7 @@ export type Request =
       bitmap: ImageBitmap;
       options: SearchOptions;
       seed: number[];
+      rounds?: number;
     }
   | { id: number; kind: 'adopt'; format: ArchiveFormat; bytes: ArrayBuffer }
   | { id: number; kind: 'importDecimal'; text: string; formats: ArchiveFormat[] }
@@ -323,8 +324,9 @@ self.onmessage = async (event: MessageEvent<Request>) => {
         const seed = Uint32Array.from(req.seed) as Seed;
         const total = req.format.resolution.width * req.format.resolution.height;
         const chunkSize = 262144;
+        const rounds = req.rounds ?? 12;
         for (let from = 0; from < total; from += chunkSize) {
-          materialiseSeed(req.format, seed, bytes, { from, to: Math.min(from + chunkSize, total) });
+          materialiseSeed(req.format, seed, bytes, { from, to: Math.min(from + chunkSize, total) }, rounds);
           if ((from / chunkSize) % 8 === 0) {
             post({ id: req.id, kind: 'progress', label: 'Materialising address', fraction: from / total });
           }
@@ -356,7 +358,7 @@ self.onmessage = async (event: MessageEvent<Request>) => {
         post({ id: req.id, kind: 'progress', label: 'Computing address', fraction: 0.7 });
         const bytes = encodeAddress(req.format, rgba, req.options.lowBits);
         if (req.options.fill === 'archive') {
-          fillSurroundFromArchive(req.format, Uint32Array.from(req.seed) as Seed, bytes, mask);
+          fillSurroundFromArchive(req.format, Uint32Array.from(req.seed) as Seed, bytes, mask, req.rounds ?? 12);
         }
         load(req.format, bytes);
         post({ id: req.id, kind: 'ok' });

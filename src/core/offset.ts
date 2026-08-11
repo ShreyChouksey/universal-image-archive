@@ -51,11 +51,11 @@ export interface TailPatch {
 }
 
 /** The last `PATCH_PIXELS` pixels of a seeded address, as raw bytes. */
-function tailBytes(format: ArchiveFormat, seed: Seed, firstPixel: number, count: number): Uint8Array {
+function tailBytes(format: ArchiveFormat, seed: Seed, firstPixel: number, count: number, rounds = 12): Uint8Array {
   const bpp = format.depth.bytesPerPixel;
   const bytes = new Uint8Array(count * bpp);
   for (let k = 0; k < count; k++) {
-    const s = sampleSeed(format, seed, firstPixel + k);
+    const s = sampleSeed(format, seed, firstPixel + k, rounds);
     const o = k * bpp;
     if (bpp === 6) {
       bytes[o] = s.r >>> 8;
@@ -149,11 +149,11 @@ export function tailPatchFromBytes(
   return packTailPatch(bytes, bpp, pixelCount(format) - count);
 }
 
-export function tailPatch(format: ArchiveFormat, seed: Seed, offset: number): TailPatch | null {
+export function tailPatch(format: ArchiveFormat, seed: Seed, offset: number, rounds = 12): TailPatch | null {
   if (offset === 0) return null;
   const total = pixelCount(format);
   const count = Math.min(PATCH_PIXELS, total);
-  const bytes = tailBytes(format, seed, total - count, count);
+  const bytes = tailBytes(format, seed, total - count, count, rounds);
   applyOffsetToTail(bytes, offset);
   return packTailPatch(bytes, format.depth.bytesPerPixel, total - count);
 }
@@ -170,13 +170,14 @@ export function sampleAt(
   offset: number,
   pixelIndex: number,
   patch: TailPatch | null,
+  rounds = 12,
 ): { r: number; g: number; b: number } {
   if (patch && pixelIndex >= patch.firstPixel) {
     const d = (pixelIndex - patch.firstPixel) * 4;
     return { r: patch.values[d], g: patch.values[d + 1], b: patch.values[d + 2] };
   }
   void offset;
-  return sampleSeed(format, seed, pixelIndex);
+  return sampleSeed(format, seed, pixelIndex, rounds);
 }
 
 /**
@@ -186,12 +187,12 @@ export function sampleAt(
  * are just the first few pixels, so the address can be shown in the coordinate
  * lane without materialising anything.
  */
-export function seedHeadBytes(format: ArchiveFormat, seed: Seed, count: number): Uint8Array {
+export function seedHeadBytes(format: ArchiveFormat, seed: Seed, count: number, rounds = 12): Uint8Array {
   const bpp = format.depth.bytesPerPixel;
   const pixels = Math.ceil(count / bpp);
   const bytes = new Uint8Array(pixels * bpp);
   for (let k = 0; k < pixels; k++) {
-    const s = sampleSeed(format, seed, k);
+    const s = sampleSeed(format, seed, k, rounds);
     const o = k * bpp;
     if (bpp === 6) {
       bytes[o] = s.r >>> 8;
@@ -215,12 +216,13 @@ export function seedTailBytes(
   seed: Seed,
   offset: number,
   count: number,
+  rounds = 12,
 ): Uint8Array {
   const total = pixelCount(format);
   const bpp = format.depth.bytesPerPixel;
   const pixels = Math.min(total, Math.ceil(count / bpp));
   const first = total - pixels;
-  const bytes = tailBytes(format, seed, first, pixels);
+  const bytes = tailBytes(format, seed, first, pixels, rounds);
   if (offset !== 0) applyOffsetToTail(bytes, offset);
   return bytes.subarray(Math.max(0, bytes.length - count));
 }

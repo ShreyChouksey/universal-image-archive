@@ -712,7 +712,7 @@ async function resolveAddress(): Promise<void> {
   }
   busy(true, 'Materialising address', 0);
   try {
-    await client.materialise(state.format, state.seed, onProgress);
+    await client.materialise(state.format, state.seed, onProgress, state.rounds);
     if (state.offset !== 0) await client.step(state.offset);
     state.held = {
       kind: 'seed',
@@ -1592,6 +1592,7 @@ async function boot(): Promise<void> {
           state.offset,
           y * state.format.resolution.width + x,
           patch,
+          state.rounds,
         );
       }
       const index = y * state.format.resolution.width + x;
@@ -1907,12 +1908,12 @@ async function runSelfChecks(): Promise<void> {
   console.info(`archive: ${vectors.detail}`);
 
   try {
-    const gpu = await renderer.probe({ format: state.format, mode: 'seed', seed: state.seed });
+    const gpu = await renderer.probe({ format: state.format, mode: 'seed', seed: state.seed, rounds: state.rounds });
     const shift = state.format.depth.bpc - 8;
     let mismatches = 0;
     for (let y = 0; y < PROBE; y++) {
       for (let x = 0; x < PROBE; x++) {
-        const cpu = sampleSeed(state.format, state.seed, y * state.format.resolution.width + x);
+        const cpu = sampleSeed(state.format, state.seed, y * state.format.resolution.width + x, state.rounds);
         const i = (y * PROBE + x) * 3;
         // The probe target is 8-bit, so compare the top 8 bits of each channel.
         // Philox is chaotic: any divergence changes every bit, not just the low ones.
@@ -1945,7 +1946,7 @@ async function runSelfChecks(): Promise<void> {
       // so this compares projections rather than filter kernels.
       const look = { yaw: 0, pitch: 0, fov: 0.008 };
       const gpu = await renderer.probe(
-        { format: state.format, mode: 'seed', seed: state.seed },
+        { format: state.format, mode: 'seed', seed: state.seed, rounds: state.rounds },
         { look },
       );
       const shift = state.format.depth.bpc - 8;
@@ -1953,7 +1954,7 @@ async function runSelfChecks(): Promise<void> {
       for (let y = 0; y < PROBE; y++) {
         for (let x = 0; x < PROBE; x++) {
           const t = screenToTexel(x, y, PROBE, PROBE, width, height, look);
-          const cpu = sampleSeed(state.format, state.seed, t.y * width + t.x);
+          const cpu = sampleSeed(state.format, state.seed, t.y * width + t.x, state.rounds);
           const i = (y * PROBE + x) * 3;
           if (
             Math.abs((cpu.r >> shift) - gpu[i]) > 1 ||
@@ -1981,10 +1982,10 @@ async function runSelfChecks(): Promise<void> {
   try {
     const { width, height } = state.format.resolution;
     const probeSeed = state.seed;
-    const testPatch = tailPatch(state.format, probeSeed, 1);
+    const testPatch = tailPatch(state.format, probeSeed, 1, state.rounds);
     const at = { x: Math.max(0, width - PROBE), y: height - 1 };
     const gpu = await renderer.probe(
-      { format: state.format, mode: 'seed', seed: probeSeed, patch: testPatch },
+      { format: state.format, mode: 'seed', seed: probeSeed, rounds: state.rounds, patch: testPatch },
       { at, withPatch: true },
     );
     const shift = state.format.depth.bpc - 8;
@@ -1992,7 +1993,7 @@ async function runSelfChecks(): Promise<void> {
     for (let x = 0; x < PROBE; x++) {
       const px = at.x + x;
       if (px >= width) continue;
-      const cpu = sampleAt(state.format, probeSeed, 1, at.y * width + px, testPatch);
+      const cpu = sampleAt(state.format, probeSeed, 1, at.y * width + px, testPatch, state.rounds);
       // Row 0 of the readback is image row `at.y`.
       const i = x * 3;
       if (

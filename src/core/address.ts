@@ -22,7 +22,7 @@ import {
   addressBytes,
   pixelCount,
 } from './format';
-import { type Philox4, type Seed, philox4x32_10, philoxScratch } from './philox';
+import { type Philox4, type Seed, philox4x32, philoxScratch } from './philox';
 
 const LOG10_2 = Math.LOG10E * Math.LN2; // log10(2), correctly rounded
 
@@ -73,10 +73,17 @@ export function archiveScale(format: ArchiveFormat): ArchiveScale {
  * Writes the address named by `seed` into `out`.
  *
  * Layout per pixel, matching PNG's byte order so export is a straight copy:
- *   16 bpc -> [R_hi, R_lo, G_hi, G_lo, B_hi, B_lo]
- *    8 bpc -> [R, G, B]
+ * [R_hi, R_lo, G_hi, G_lo, B_hi, B_lo] at 16-bit, [R, G, B] at 8-bit.
  *
- * Each pixel consumes one Philox block (128 bits) and uses the low bits of the
+ * Counter arrangement: c0 = low 32 bits of pixel index, c1 = high 32 bits, c2 and
+ * c3 = seed words 2 and 3. Key arrangement: k0 = seed word 0, k1 = seed word 1.
+ *
+ * The cipher is run once per pixel; the output four uint32 words fill the pixel's
+ * three channels and leave the fourth word unused, exactly as the shader's fetch
+ * helper does on the GPU.
+ *
+ * `range` restricts the write to `out` to `[range.from, range.to)` pixels, so a
+ * worker can materialise a slice of an address directly without zeroing the
  * first three words. Pixel i depends only on i, so this may be resumed, sliced,
  * or run out of order.
  */
@@ -85,6 +92,7 @@ export function materialiseSeed(
   seed: Seed,
   out: Uint8Array,
   range?: { from: number; to: number },
+  rounds = 12,
 ): void {
   const total = pixelCount(format);
   const from = range?.from ?? 0;
@@ -97,7 +105,7 @@ export function materialiseSeed(
 
   if (format.depth.bpc === 16) {
     for (let i = from; i < to; i++) {
-      philox4x32_10(scratch, i >>> 0, (i / 0x100000000) >>> 0, c2, c3, k0, k1);
+      philox4x32(scratch, i >>> 0, (i / 0x100000000) >>> 0, c2, c3, k0, k1, rounds);
       const o = i * 6;
       const r = scratch[0] & 0xffff;
       const g = scratch[1] & 0xffff;
@@ -111,7 +119,7 @@ export function materialiseSeed(
     }
   } else {
     for (let i = from; i < to; i++) {
-      philox4x32_10(scratch, i >>> 0, (i / 0x100000000) >>> 0, c2, c3, k0, k1);
+      philox4x32(scratch, i >>> 0, (i / 0x100000000) >>> 0, c2, c3, k0, k1, rounds);
       const o = i * 3;
       out[o] = scratch[0] & 0xff;
       out[o + 1] = scratch[1] & 0xff;
@@ -125,9 +133,10 @@ export function sampleSeed(
   format: ArchiveFormat,
   seed: Seed,
   pixelIndex: number,
+  rounds = 12,
 ): { r: number; g: number; b: number } {
   const scratch = philoxScratch();
-  philox4x32_10(
+  philox4x32(
     scratch,
     pixelIndex >>> 0,
     (pixelIndex / 0x100000000) >>> 0,
@@ -135,6 +144,7 @@ export function sampleSeed(
     seed[3],
     seed[0],
     seed[1],
+    rounds,
   );
   const mask = format.depth.bpc === 16 ? 0xffff : 0xff;
   return { r: scratch[0] & mask, g: scratch[1] & mask, b: scratch[2] & mask };

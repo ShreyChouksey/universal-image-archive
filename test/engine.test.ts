@@ -46,6 +46,7 @@ import {
   DEPTHS,
   RESOLUTIONS,
   addressBytes,
+  customResolution,
   defaultResolutionFor,
   formatCapacity,
   resolutionById,

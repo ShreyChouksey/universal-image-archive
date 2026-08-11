@@ -477,7 +477,7 @@ function renderSeed(): void {
   if (state.mode === 'address') {
     if (document.activeElement !== input) {
       input.value = '';
-      input.placeholder = 'No 128-bit seed coordinate — photo lives at full byte address';
+      input.placeholder = 'No 128-bit seed coordinate — image lives at full byte address';
     }
   } else {
     input.placeholder = 'Image coordinate, 128-bit hexadecimal';
@@ -530,7 +530,7 @@ function renderSeedLocation(): void {
   const offsetNote = notes.length > 0 ? notes.join(' · ') : 'on coordinate';
 
   const formattedDigits = group(scale.cardinalityDigits);
-  const scaleHint = scale.cardinalityDigits > 1e6 ? ` (~${(scale.cardinalityDigits / 1e6).toFixed(2)}M digits)` : '';
+  const scaleHint = ` (~${scaleWord(scale.cardinalityDigits)} digits)`;
 
   let html =
     `<div class="address-meta">` +

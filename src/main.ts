@@ -1687,6 +1687,8 @@ async function boot(): Promise<void> {
   $('exportAddress2').addEventListener('click', () => void exportAddress());
   $('exportHex').addEventListener('click', () => void exportHex());
   $('exportDecimal').addEventListener('click', () => void exportDecimal());
+  document.getElementById('exportHexBench')?.addEventListener('click', () => void exportHex());
+  document.getElementById('exportDecimalBench')?.addEventListener('click', () => void exportDecimal());
   $('addressResolve').addEventListener('click', async () => {
     await resolveAddress();
     await renderAddressPanel();

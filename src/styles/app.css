@@ -770,7 +770,17 @@ kbd {
 .bench__exports {
   grid-column: 1 / -1;
   display: flex;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 2px;
+}
+
+.bench__exports .ghost {
+  flex: 1;
+  min-width: 60px;
+  text-align: center;
+  padding: 5px 8px;
+  font-size: 11px;
 }
 
 /* -------------------------------------------------------------------- drawer */

@@ -1712,16 +1712,28 @@ async function boot(): Promise<void> {
   if (roundsSelect) {
     roundsSelect.value = String(state.rounds);
     roundsSelect.addEventListener('change', async () => {
-      state.rounds = Number(roundsSelect.value);
+      const targetRounds = Number(roundsSelect.value);
+      if (state.mode === 'address') {
+        const ok = window.confirm(
+          `Changing cipher rounds to ${targetRounds} will re-materialise the active address (${heldLabel()}) under ${targetRounds} rounds of Philox Feistel mixing. Continue?`,
+        );
+        if (!ok) {
+          roundsSelect.value = String(state.rounds);
+          return;
+        }
+      }
+      state.rounds = targetRounds;
       refreshPatch();
       if (state.mode === 'address') {
+        toast(`Re-evaluating address under ${state.rounds} cipher rounds...`);
         await resolveAddress();
+        toast(`Address re-materialised under ${state.rounds} cipher rounds`);
       } else {
         renderSeedLocation();
+        toast(`Philox Cipher configured to ${state.rounds} rounds`);
       }
       requestDraw();
       syncUrl();
-      toast(`Philox Cipher configured to ${state.rounds} rounds`);
     });
   }
 

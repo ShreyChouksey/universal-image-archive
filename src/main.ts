@@ -357,11 +357,11 @@ function updateLaneUI(): void {
   const badge = document.getElementById('laneBadge');
   if (badge) {
     if (state.mode === 'address') {
-      badge.textContent = 'LOCATED ADDRESS';
+      badge.textContent = 'MATERIALISED ADDRESS · 3.85M DIGITS';
       badge.className = 'lane-badge lane-badge--address';
-      badge.title = 'This image is at its exact base-256 address in the archive (it has no seed coordinate)';
+      badge.title = 'This image is at its exact base-256 address in the archive (1.52 MiB, 3.85M decimal digits)';
     } else {
-      badge.textContent = 'SEEDED COORDINATE';
+      badge.textContent = 'GENERATOR SEED · PHILOX 128-BIT';
       badge.className = 'lane-badge lane-badge--seed';
       badge.title = 'A 128-bit coordinate that expands via Philox noise into a 4K frame';
     }

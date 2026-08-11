@@ -571,6 +571,17 @@ kbd {
   border-color: var(--rule-strong);
 }
 
+.lane-badge--address::before {
+  content: '';
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #4ade80;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+
 .entry__seed {
   width: 100%;
   padding: 7px 9px;

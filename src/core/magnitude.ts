@@ -129,6 +129,49 @@ export interface FunFact {
   fact: string;
 }
 
+function dnaOrganismComparison(basePairs: number): string {
+  if (basePairs < 100_000) {
+    return `${(basePairs / 1000).toFixed(1)}k base pairs — about 1/5th the genome of a Mycoplasma bacterium`;
+  }
+  if (basePairs < 2_000_000) {
+    return `${(basePairs / 1000).toFixed(0)}k base pairs — roughly the complete functional genome of an E. coli bacterium`;
+  }
+  if (basePairs < 50_000_000) {
+    return `${(basePairs / 1e6).toFixed(1)} million base pairs — equivalent to the entire chromosome set of a yeast organism`;
+  }
+  if (basePairs < 500_000_000) {
+    return `${(basePairs / 1e6).toFixed(0)} million base pairs — roughly the complete genome of the Arabidopsis thaliana plant`;
+  }
+  return `${(basePairs / 1e6).toFixed(0)} million base pairs — about ${(basePairs / 3e9 * 100).toFixed(1)}% of the entire human genome`;
+}
+
+function paperRibbonComparison(metres: number): string {
+  if (metres < 1000) {
+    return `${metres.toFixed(0)} meters — ${(metres / 100).toFixed(1)}× the length of a professional football field`;
+  }
+  if (metres < 100_000) {
+    return `${(metres / 1000).toFixed(1)} km — stretching across the width of Paris`;
+  }
+  if (metres < 10_000_000) {
+    return `${(metres / 1000).toLocaleString('en-US')} km — stretching from New York to Tokyo`;
+  }
+  return `${(metres / 1000).toLocaleString('en-US')} km — ${(metres / 384_400_000 * 100).toFixed(2)}% of the distance to the Moon`;
+}
+
+function quantumNanoComparison(bytes: number): string {
+  const nm = Math.sqrt(bytes);
+  if (nm < 500) {
+    return `${nm.toFixed(1)} nanometers across — roughly the diameter of a single influenza virus particle`;
+  }
+  if (nm < 2000) {
+    return `${(nm / 1000).toFixed(2)} micrometers across — smaller than a single human red blood cell`;
+  }
+  if (nm < 10000) {
+    return `${(nm / 1000).toFixed(2)} micrometers across — thinner than a single strand of natural silk`;
+  }
+  return `${(nm / 1000).toFixed(2)} micrometers across — about the thickness of a human hair`;
+}
+
 export function gridFunFacts(format: ArchiveFormat): FunFact[] {
   const scale = archiveScale(format);
   const { width, height } = format.resolution;
@@ -144,36 +187,35 @@ export function gridFunFacts(format: ArchiveFormat): FunFact[] {
   const fractionExponent = Math.round(producedLog10 - exp);
 
   const readSecs = digits / 3;
-  const populationSecs = readSecs / 8.1e9;
 
   return [
     {
-      title: 'Cosmic Scale',
-      fact: `Every atom in the observable universe (10⁸⁰) generating a billion images a second since the Big Bang (13.8B yrs) yields 10¹⁰⁷ images. This ${format.resolution.label} grid holds 10${superscriptOf(exp)} images — meaning all matter in time could only cover 10${superscriptOf(fractionExponent)}% of this single archive.`,
+      title: 'Cosmic Scale vs. Universe',
+      fact: `Every atom in the observable universe (10⁸⁰) generating a billion images a second since the Big Bang (13.8B yrs) yields 10¹⁰⁷ images. This <strong class="fact-highlight">${format.resolution.label}</strong> grid holds <strong class="fact-highlight">10${superscriptOf(exp)}</strong> images — meaning all matter in time could only cover <strong class="fact-highlight">10${superscriptOf(fractionExponent)}%</strong> of this single archive.`,
     },
     {
-      title: 'Global Recitation',
-      fact: `If all 8.1 billion people on Earth read this ${format.resolution.label} address aloud together in shifts at 3 digits per second, it would take ${duration(populationSecs)} to finish speaking it.`,
+      title: 'Solo Recitation Marathon',
+      fact: `If a single person read this <strong class="fact-highlight">${format.resolution.label}</strong> address aloud non-stop 24/7 at 3 digits per second without sleeping, it would take <strong class="fact-highlight">${duration(readSecs)}</strong> of continuous speaking to finish.`,
     },
     {
       title: 'DNA Code Density',
-      fact: `Encoding this single ${format.resolution.label} image address into DNA nucleotides (2 bits per base pair) requires ${(bits / 2).toLocaleString('en-US')} base pairs — equivalent to ${((bits / 2) / 1000).toFixed(1)}k pairs of genetic code.`,
+      fact: `Encoding this single <strong class="fact-highlight">${format.resolution.label}</strong> image address into DNA nucleotides (2 bits per base pair) requires <strong class="fact-highlight">${dnaOrganismComparison(bits / 2)}</strong>.`,
     },
     {
-      title: 'Paper Ribbon Length',
-      fact: `Typeset in 10pt monospace on a single continuous line, this address stretches ${distance((digits * 2.117) / 1000)} — about ${((digits * 2.117 / 1000) / 384400000).toFixed(4)}× the distance to the Moon.`,
+      title: 'Typeset Ribbon Length',
+      fact: `Typeset in 10pt monospace on a single continuous line, this address stretches <strong class="fact-highlight">${paperRibbonComparison((digits * 2.117) / 1000)}</strong>.`,
     },
     {
       title: 'Borges Omnipresence',
-      fact: `Because this ${format.resolution.label} grid (10${superscriptOf(exp)} images) forms an exact mathematical bijection over all ${width} × ${height} ${format.depth.label} pixel matrices, every photo of you ever taken already exists at a precise coordinate in this grid.`,
+      fact: `Because this <strong class="fact-highlight">${format.resolution.label}</strong> grid (<strong class="fact-highlight">10${superscriptOf(exp)}</strong> images) forms an exact mathematical bijection over all ${width} × ${height} ${format.depth.label} pixel matrices, every photo of you ever taken already exists at a precise coordinate in this grid.`,
     },
     {
-      title: 'Thermodynamic Limit',
-      fact: `Finding a specific target image in this ${format.resolution.label} archive by brute force requires searching 2¹²⁸ seeds — taking more thermodynamic energy than boiling Earth's oceans 400× over.`,
+      title: 'Thermodynamic Boundary',
+      fact: `Finding a specific target image in this <strong class="fact-highlight">${format.resolution.label}</strong> archive by brute force requires searching 2¹²⁸ seeds — taking more thermodynamic energy than boiling Earth's oceans <strong class="fact-highlight">400× over</strong>.`,
     },
     {
-      title: 'Quantum Micro-Scale',
-      fact: `If each byte of this ${bytes.toLocaleString('en-US')}-byte address were etched as a 1-nanometer magnetic cell, the physical chip would measure just ${Math.sqrt(bytes).toFixed(1)} nanometers across.`,
+      title: 'Quantum Nanometer Scale',
+      fact: `If each byte of this <strong class="fact-highlight">${bytes.toLocaleString('en-US')}-byte</strong> address were etched as a 1-nanometer magnetic cell, the physical chip would measure <strong class="fact-highlight">${quantumNanoComparison(bytes)}</strong>.`,
     },
   ];
 }

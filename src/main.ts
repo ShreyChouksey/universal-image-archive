@@ -1133,7 +1133,7 @@ function renderFunFact(): void {
   const bodyEl = document.getElementById('funFactBody');
   if (titleEl && bodyEl) {
     titleEl.textContent = `✦ COSMIC FACT · ${item.title}`;
-    bodyEl.textContent = item.fact;
+    bodyEl.innerHTML = item.fact;
   }
 }
 

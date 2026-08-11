@@ -1463,6 +1463,11 @@ kbd {
   margin: 0;
 }
 
+.fact-highlight {
+  color: var(--ink);
+  font-weight: 600;
+}
+
 .telemetry-card {
   padding: 14px;
   background: var(--ground);

@@ -127,7 +127,7 @@ let patch: TailPatch | null = null;
  * photograph walks at the same cost as a generated one, and the 47 MiB sits
  * untouched in the worker the whole time.
  */
-let base: { head: Uint8Array; tail: Uint8Array; residue: number; digits: number } | null = null;
+let base: { head: Uint8Array; tail: Uint8Array; residue: number; digits: number; headOffset: number } | null = null;
 
 function refreshPatch(): boolean {
   try {
@@ -481,10 +481,6 @@ function renderSeedLocation(): void {
  */
 function renderAddressLocation(): void {
   if (state.mode !== 'address' || !base) return;
-  if (state.offset === 0) {
-    void renderAddressReadout();
-    return;
-  }
 
   const bpp = state.format.depth.bytesPerPixel;
   const count = Math.floor(base.tail.length / bpp) * bpp;
@@ -501,7 +497,15 @@ function renderAddressLocation(): void {
   const tailDec = String(residue).padStart(15, '0').slice(-12);
   const formattedDigits = group(base.digits);
   const scaleHint = base.digits > 1e6 ? ` (~${(base.digits / 1e6).toFixed(2)}M digits)` : '';
-  const offsetNote = `${state.offset > 0 ? '+' : '−'}${Math.abs(state.offset).toLocaleString('en-US')} from base`;
+
+  const notes: string[] = [];
+  if (base.headOffset !== 0) {
+    notes.push(`${base.headOffset > 0 ? '+' : '−'}${Math.abs(base.headOffset).toLocaleString('en-US')} from head`);
+  }
+  if (state.offset !== 0) {
+    notes.push(`${state.offset > 0 ? '+' : '−'}${Math.abs(state.offset).toLocaleString('en-US')} from base`);
+  }
+  const offsetNote = notes.length > 0 ? notes.join(' · ') : 'on base address';
 
   $('addressReadout').innerHTML =
     `<div class="address-meta">` +
@@ -545,7 +549,7 @@ function renderAddressPlaceholder(): void {
 
 async function renderAddressReadout(): Promise<void> {
   const r = await client.readout();
-  base = { head: r.headBytes, tail: r.tailBytes, residue: r.residue, digits: r.digitCount };
+  base = { head: r.headBytes, tail: r.tailBytes, residue: r.residue, digits: r.digitCount, headOffset: 0 };
   if (!$('addressLoaded').hidden || $('drawerTitle').textContent === TITLES.address) {
     void renderAddressPanel();
   }
@@ -1675,6 +1679,7 @@ async function boot(): Promise<void> {
     if (state.mode === 'seed') {
       setSeed(seedAdd(state.seed, delta));
     } else if (base) {
+      base.headOffset = (base.headOffset ?? 0) + delta;
       const headSeed = seedFromHex(hex(base.head)) ?? (new Uint32Array(4) as Seed);
       const updated = seedAdd(headSeed, delta);
       base.head = new Uint8Array(updated.buffer, updated.byteOffset, updated.byteLength);

@@ -1962,6 +1962,14 @@ async function boot(): Promise<void> {
   });
   $('mintPlate').addEventListener('click', () => void mintPlate());
 
+  function triggerStepButton(id: string): void {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.classList.add('key--active');
+    setTimeout(() => btn.classList.remove('key--active'), 150);
+    btn.click();
+  }
+
   // Keyboard
   window.addEventListener('keydown', (e) => {
     const target = e.target as HTMLElement;
@@ -1973,14 +1981,40 @@ async function boot(): Promise<void> {
     // button. Without this, pressing Space after clicking Random would fire
     // Random again and toggle Traverse at the same time.
     if (target.matches('button') && (e.key === ' ' || e.key === 'Enter')) return;
-    if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+    // Interactive Option / Alt shortcuts: Option+A, Option+S, Option+D, Option+F
+    if (e.altKey) {
+      const code = e.code;
+      if (code === 'KeyA') {
+        e.preventDefault();
+        triggerStepButton('stepHeadDown');
+        return;
+      }
+      if (code === 'KeyS') {
+        e.preventDefault();
+        triggerStepButton('stepHeadUp');
+        return;
+      }
+      if (code === 'KeyD') {
+        e.preventDefault();
+        triggerStepButton('stepDown');
+        return;
+      }
+      if (code === 'KeyF') {
+        e.preventDefault();
+        triggerStepButton('stepUp');
+        return;
+      }
+    }
+
+    if (e.metaKey || e.ctrlKey) return;
 
     switch (e.key.toLowerCase()) {
       case 'r': setSeed(randomSeed()); break;
       case 'arrowright': stepCoordinate(stepSize()); break;
       case 'arrowleft': stepCoordinate(-stepSize()); break;
-      case ']': walk(stepSize()); break;
-      case '[': walk(-stepSize()); break;
+      case ']': triggerStepButton('stepUp'); break;
+      case '[': triggerStepButton('stepDown'); break;
       case ' ': e.preventDefault(); setPlaying(!state.playing); break;
       case 'f': stage.fit(); break;
       case '1': stage.actualSize(); break;

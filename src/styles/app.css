@@ -588,7 +588,7 @@ kbd {
 
 .bench {
   display: grid;
-  grid-template-columns: minmax(320px, 1.4fr) auto minmax(340px, 1.2fr);
+  grid-template-columns: minmax(320px, 1.4fr) minmax(320px, 1fr) minmax(320px, 1.2fr);
   border-top: 1px solid var(--rule);
   background: var(--panel);
   min-height: var(--bench-h);
@@ -750,7 +750,7 @@ kbd {
 
 .key {
   min-width: 0;
-  padding: 6px 8px;
+  padding: 5px 6px;
   border: 1px solid var(--rule);
   border-radius: 2px;
   background: var(--ground);

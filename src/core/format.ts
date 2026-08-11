@@ -114,10 +114,6 @@ export const DEFAULT_FORMAT: ArchiveFormat = {
 
 /**
  * The grid to land on when switching geometry, or when an id does not resolve.
- *
- * Deliberately not `RESOLUTIONS[0]`: that is the 64K browse-only grid, and
- * falling back to something that cannot be resolved would turn a mistyped URL
- * into an archive that refuses to export.
  */
 export function defaultResolutionFor(geometry: Geometry): Resolution {
   return geometry === 'sphere' ? DEFAULT_SPHERE : DEFAULT_RESOLUTION;
@@ -193,7 +189,7 @@ export function formatKey(f: ArchiveFormat): string {
  *
  * Browsing costs one shader evaluation per *viewport* pixel. The grid could be
  * a hundred gigapixels and the frame would take the same 1.7 ms, because the
- * image is never allocated — measured flat from 1080p to 64K.
+ * image is never allocated — measured flat from 64×64 to 16K UHD.
  *
  * Materialising is where the limits live. An address has to exist as bytes, and
  * showing it needs an RGBA16 texture, and both have to fit:

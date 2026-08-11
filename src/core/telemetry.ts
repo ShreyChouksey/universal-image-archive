@@ -3,7 +3,7 @@
  *
  * Measures GPU/CPU render latency, frame rates, VRAM/RAM allocation pressure,
  * Philox throughput, and warns when operating near hardware allocation boundaries
- * (e.g. 16K / 32K / 64K grids exceeding WebGPU buffer limits).
+ * (e.g. 16K grids exceeding WebGPU buffer limits).
  */
 
 import type { ArchiveFormat } from './format';
@@ -40,9 +40,7 @@ export class TelemetryMonitor {
   #adapterName = 'WebGPU (Hardware Accelerated)';
   #maxTextureDimension = 8192;
 
-  constructor() {
-    this.#detectBrowserMemory();
-  }
+
 
   setGpuInfo(adapterName: string, maxTextureDimension: number): void {
     this.#adapterName = adapterName;
@@ -155,10 +153,6 @@ export class TelemetryMonitor {
       return nav.memory.usedJSHeapSize;
     }
     return null;
-  }
-
-  #detectBrowserMemory(): void {
-    // Memory API hook for Chromium browsers if supported
   }
 }
 

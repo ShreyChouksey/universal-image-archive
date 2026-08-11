@@ -337,6 +337,21 @@ function renderScale(): void {
     ${cap.materialisable ? '' : `<div class="scale__warn">browse only — ${cap.reason}</div>`}
   `;
 
+  const resolveBtn = document.getElementById('addressResolve') as HTMLButtonElement | null;
+  const exportAddressBtn = document.getElementById('exportAddress') as HTMLButtonElement | null;
+  if (resolveBtn) {
+    resolveBtn.disabled = !cap.materialisable;
+    resolveBtn.title = cap.materialisable
+      ? 'Materialise address bytes for this image'
+      : `Resolve frozen — Grid (${state.format.resolution.width}px) exceeds WebGPU 16,384px GPU texture limit. Seed browsing & Seed exports are 100% active.`;
+  }
+  if (exportAddressBtn) {
+    exportAddressBtn.disabled = !cap.materialisable;
+    exportAddressBtn.title = cap.materialisable
+      ? 'Export raw binary (.uia) archive file'
+      : `Binary (.uia) export frozen — Exceeds WebGPU 16,384px GPU texture limit. PNG, Hex, and Decimal exports are fully supported.`;
+  }
+
   $('aboutFormat').textContent = `${state.format.resolution.note} and ${state.format.depth.label}`;
   $('aboutDigits').textContent = group(s.cardinalityDigits);
   $('aboutPixels').textContent = group(s.pixels);

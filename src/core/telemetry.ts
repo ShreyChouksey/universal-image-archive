@@ -92,7 +92,7 @@ export class TelemetryMonitor {
 
     if (exceedsHardwareLimit) {
       hardwareToll = 'extreme';
-      tollWarning = `Resolution (${width}×${height}) exceeds GPU hardware texture limit (${this.#maxTextureDimension}px). WebGPU cannot bind textures above ${this.#maxTextureDimension}px.`;
+      tollWarning = `Grid (${width}×${height}) exceeds WebGPU single-texture limit (${this.#maxTextureDimension}px).\n• FROZEN: Resolve (Address Materialisation) & .uia Binary Export.\n• FULLY ACTIVE: Seed Browsing (Viewport Shader), PNG Export, Hex & Decimal Exports.`;
     } else if (vramBytes > 2 * 1024 * 1024 * 1024) {
       // > 2 GB single buffer
       hardwareToll = 'extreme';

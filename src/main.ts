@@ -513,8 +513,8 @@ function renderSeedLocation(): void {
   let head: string;
   let tail: string;
   try {
-    head = hex(headBytes);
-    tail = hex(seedTailBytes(state.format, state.seed, state.offset, 16, state.rounds));
+    head = hex(headBytes).slice(0, 20);
+    tail = hex(seedTailBytes(state.format, state.seed, state.offset, 16, state.rounds)).slice(-20);
   } catch {
     renderAddressPlaceholder();
     return;
@@ -582,8 +582,8 @@ function renderAddressLocation(): void {
   }
   const m = DECIMAL_MODULUS;
   const residue = (((base.residue + (state.offset % m)) % m) + m) % m;
-  const tailHex = hex(tailBytes.subarray(Math.max(0, tailBytes.length - 16)));
-  const headHex = hex(base.head);
+  const tailHex = hex(tailBytes.subarray(Math.max(0, tailBytes.length - 16))).slice(-20);
+  const headHex = hex(base.head).slice(0, 20);
   const tailDec = String(residue).padStart(15, '0').slice(-12);
   const formattedDigits = group(base.digits);
   const scaleHint = base.digits > 1e6 ? ` (~${(base.digits / 1e6).toFixed(2)}M digits)` : '';
@@ -636,11 +636,14 @@ async function renderAddressReadout(): Promise<void> {
   const formattedDigits = group(r.digitCount);
   const scaleHint = r.digitCount > 1e6 ? ` (~${(r.digitCount / 1e6).toFixed(2)}M digits)` : '';
 
+  const head20 = r.head.slice(0, 20);
+  const tail20 = r.tail.slice(-20);
+
   $('addressReadout').innerHTML =
     `<div class="address-meta">` +
-    `<span class="hex-chip" data-copy="${r.head}" title="Click to copy Head Hex">${r.head}</span> ` +
+    `<span class="hex-chip" data-copy="${r.head}" title="Click to copy Head Hex">${head20}</span> ` +
     `<span class="dim">…</span> ` +
-    `<span class="hex-chip" data-copy="${r.tail}" title="Click to copy Tail Hex">${r.tail}</span></div>` +
+    `<span class="hex-chip" data-copy="${r.tail}" title="Click to copy Tail Hex">${tail20}</span></div>` +
     `<div class="address-meta"><span class="dim">${formattedDigits} digits${scaleHint} · ends ` +
     `<span class="hex-chip" data-copy="${r.trailingDecimal}" title="Click to copy Decimal Residue">…${r.trailingDecimal}</span></span></div>`;
 

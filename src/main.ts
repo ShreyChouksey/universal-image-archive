@@ -723,13 +723,7 @@ async function resolveAddress(): Promise<void> {
       seed: Uint32Array.from(state.seed) as Seed,
       offset: state.offset,
     };
-    // The seed lane already shows exactly these bytes, so the stage stays put.
-    if (state.mode === 'address') {
-      state.mode = 'seed';
-      addressTexels = null;
-      renderer.setAddressTexture(1, 1, null);
-      requestDraw();
-    }
+    await adoptWorkerAddress();
     await renderAddressReadout();
     updateLaneUI();
   } catch (error) {

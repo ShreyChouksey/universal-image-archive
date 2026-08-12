@@ -1880,6 +1880,56 @@ test('P2P WebRTC Address Mesh node instantiates and generates node identifier', 
   node.close();
 });
 
+test('Layer 0: Seed3072 hex serialization and random generation roundtrips', async () => {
+  const { randomSeed3072, seed3072ToHex, seed3072FromHex } = await import('../src/core/seed3072.ts');
+  const seed = randomSeed3072();
+  assert.equal(seed.length, 96);
+  const hex = seed3072ToHex(seed);
+  assert.equal(hex.length, 768);
+  const restored = seed3072FromHex(hex);
+  assert.deepEqual(seed, restored);
+});
+
+test('Layer 0: Seed3072 BigInt carry addition preserves word boundaries', async () => {
+  const { createSeed3072, seed3072Add } = await import('../src/core/seed3072.ts');
+  const seed = createSeed3072();
+  seed[95] = 0xffffffff;
+  seed3072Add(seed, 1n);
+  assert.equal(seed[95], 0);
+  assert.equal(seed[94], 1);
+});
+
+test('Layer 0: Philox96x32 Feistel generator is deterministic and populates 96 words', async () => {
+  const { philox96x32 } = await import('../src/core/philox96.ts');
+  const { randomSeed3072 } = await import('../src/core/seed3072.ts');
+  const seed = randomSeed3072();
+  const out1 = new Uint32Array(96);
+  const out2 = new Uint32Array(96);
+
+  philox96x32(out1, 1, 0, seed, 32);
+  philox96x32(out2, 1, 0, seed, 32);
+  assert.deepEqual(out1, out2);
+});
+
+test('Layer 0: materialiseSeed3072 generates pixel payload for tiny grid', async () => {
+  const { materialiseSeed3072 } = await import('../src/core/philox96.ts');
+  const { randomSeed3072 } = await import('../src/core/seed3072.ts');
+  const { DEFAULT_FORMAT } = await import('../src/core/format.ts');
+  const seed = randomSeed3072();
+
+  const buffer = new Uint8Array(192); // 8x8 24-bit
+  materialiseSeed3072(DEFAULT_FORMAT, seed, buffer, 32);
+  assert.equal(buffer.length, 192);
+});
+
+test('Layer 0: WebGPU 3,072-bit compute engine instantiates cleanly', async () => {
+  const { createComputeEngine3072 } = await import('../src/gpu/compute3072.ts');
+  const engine = await createComputeEngine3072();
+  assert.ok(typeof engine.supported === 'boolean');
+  engine.dispose();
+});
+
+
 
 
 

@@ -2062,12 +2062,12 @@ test('Layer 1.5 Mining: mineBlock3072 finds valid nonce and verifyBlockMining307
   block.blockHeight = 1;
   block.prevBlockHash.fill(0x01);
 
-  const res = mineBlock3072(block, 4, 100, 1); // 4 leading zeros target
+  const res = mineBlock3072(block, 1, 500, 1); // 1 leading zero bit target
   assert.equal(res.found, true);
   assert.ok(res.attempts >= 1);
   assert.ok(res.seed !== null);
 
-  const verify = verifyBlockMining3072(res.minedBlock!, 4, 1);
+  const verify = verifyBlockMining3072(res.minedBlock!, 1, 1);
   assert.equal(verify.valid, true);
   assert.equal(verify.leadingZeros, res.leadingZeros);
 

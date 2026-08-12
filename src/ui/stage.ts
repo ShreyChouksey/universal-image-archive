@@ -28,6 +28,7 @@ export interface StageHooks {
   sample(x: number, y: number): Sample | null;
   onViewChange(): void;
   onEntropyMotion?(dx: number, dy: number, dt: number): void;
+  onStageClick?(): void;
 }
 
 const MIN_ZOOM_FACTOR = 0.5; // relative to fit
@@ -152,7 +153,8 @@ export class Stage {
 
     root.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
-      if ((e.target as HTMLElement).closest('button, select, input, .parked, .loupe')) return;
+      if ((e.target as HTMLElement).closest('button, select, input, .parked, .loupe, .entropy-hud')) return;
+      this.#hooks.onStageClick?.();
       this.#dragging = true;
       this.#lastPointer = { x: e.clientX, y: e.clientY };
       root.setPointerCapture(e.pointerId);

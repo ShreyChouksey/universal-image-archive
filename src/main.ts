@@ -1802,6 +1802,28 @@ async function boot(): Promise<void> {
   telemetry.setGpuInfo(caps.backend, caps.maxTextureDimension);
   updateTelemetryUI();
 
+  const entropyBtn = $<HTMLButtonElement>('toggleEntropy');
+  const entropyHud = document.getElementById('entropyHud');
+  const entropyHudStop = document.getElementById('entropyHudStop');
+
+  function toggleEntropy(forceState?: boolean): void {
+    state.entropyMode = forceState ?? !state.entropyMode;
+    if (entropyBtn) {
+      entropyBtn.setAttribute('aria-pressed', String(state.entropyMode));
+      entropyBtn.textContent = state.entropyMode ? 'Entropy: Active (⌥G)' : 'Entropy: Off';
+    }
+    if (entropyHud) {
+      entropyHud.hidden = !state.entropyMode;
+    }
+    toast(
+      state.entropyMode
+        ? 'Entropy Sculpting: Active — move cursor across stage. Press ⌥G or Click stage to Freeze'
+        : 'Entropy Sculpting: Frozen & Locked',
+    );
+  }
+
+  entropyHudStop?.addEventListener('click', () => toggleEntropy(false));
+
   stage = new Stage($('stage'), canvas, renderer, state.format, {
     sample: (x, y) => {
       if (state.mode === 'seed') {
@@ -1828,6 +1850,9 @@ async function boot(): Promise<void> {
       if (!state.entropyMode) return;
       const delta = Math.round(dx * 13 + dy * 17 + dt * 7);
       if (delta !== 0) setSeed(seedAdd(state.seed, delta), { pushUrl: false });
+    },
+    onStageClick: () => {
+      if (state.entropyMode) toggleEntropy(false);
     },
   });
 
@@ -1982,18 +2007,8 @@ async function boot(): Promise<void> {
     });
   }
 
-  const entropyBtn = $<HTMLButtonElement>('toggleEntropy');
   if (entropyBtn) {
-    entropyBtn.addEventListener('click', () => {
-      state.entropyMode = !state.entropyMode;
-      entropyBtn.setAttribute('aria-pressed', String(state.entropyMode));
-      entropyBtn.textContent = state.entropyMode ? 'Entropy: Active' : 'Entropy: Off';
-      toast(
-        state.entropyMode
-          ? 'Entropy Sculpting: Active — move cursor across stage to sculpt coordinates live'
-          : 'Entropy Sculpting: Paused',
-      );
-    });
+    entropyBtn.addEventListener('click', () => toggleEntropy());
   }
 
   // Exports
@@ -2168,9 +2183,14 @@ async function boot(): Promise<void> {
       if (e.key === 'Enter') return;
     }
 
-    // Interactive Option / Alt shortcuts: Option+A, Option+S, Option+D, Option+F
+    // Interactive Option / Alt shortcuts: Option+G (Freeze Entropy), Option+A, Option+S, Option+D, Option+F, Option+C
     if (e.altKey) {
       const code = e.code;
+      if (code === 'KeyG' || e.key === 'g' || e.key === 'G' || e.key === '©') {
+        e.preventDefault();
+        toggleEntropy();
+        return;
+      }
       if (code === 'KeyA') {
         e.preventDefault();
         triggerStepButton('stepHeadDown');
@@ -2215,7 +2235,13 @@ async function boot(): Promise<void> {
       case 'p': openDrawer('plate'); break;
       case 'a': openDrawer('address'); void renderAddressPanel(); break;
       case 'e': void exportPng(); break;
-      case 'escape': openDrawer(null); break;
+      case 'escape':
+        if (state.entropyMode) {
+          toggleEntropy(false);
+          break;
+        }
+        openDrawer(null);
+        break;
       default: return;
     }
   });

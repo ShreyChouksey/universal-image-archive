@@ -2041,6 +2041,43 @@ test('Block384: Bijective conversion to Seed3072 and back preserves all 3,072 bi
   assert.deepEqual(restoredBytes, originalBytes);
 });
 
+test('Layer 1.5 Mining: generateMemoryScratchpad expands Seed3072 into memory buffer', async () => {
+  const { generateMemoryScratchpad, mixScratchpadMemoryHard } = await import('../src/core/mining3072.ts');
+  const { randomSeed3072 } = await import('../src/core/seed3072.ts');
+
+  const seed = randomSeed3072();
+  const scratchpad = generateMemoryScratchpad(seed, 1); // 1 MiB
+  assert.equal(scratchpad.length, 262144); // 262,144 words
+
+  const copy = new Uint32Array(scratchpad);
+  mixScratchpadMemoryHard(scratchpad, 1);
+  assert.notDeepEqual(scratchpad, copy);
+});
+
+test('Layer 1.5 Mining: mineBlock3072 finds valid nonce and verifyBlockMining3072 verifies it', async () => {
+  const { mineBlock3072, verifyBlockMining3072 } = await import('../src/core/mining3072.ts');
+  const { createEmptyBlock384 } = await import('../src/core/block384.ts');
+
+  const block = createEmptyBlock384();
+  block.blockHeight = 1;
+  block.prevBlockHash.fill(0x01);
+
+  const res = mineBlock3072(block, 4, 100, 1); // 4 leading zeros target
+  assert.equal(res.found, true);
+  assert.ok(res.attempts >= 1);
+  assert.ok(res.seed !== null);
+
+  const verify = verifyBlockMining3072(res.minedBlock!, 4, 1);
+  assert.equal(verify.valid, true);
+  assert.equal(verify.leadingZeros, res.leadingZeros);
+
+  // Tamper check
+  const badBlock = { ...res.minedBlock!, nonce: res.minedBlock!.nonce + 9999n };
+  const verifyBad = verifyBlockMining3072(badBlock, 4, 1);
+  assert.notEqual(verifyBad.hashHex, res.hashHex);
+});
+
+
 
 
 

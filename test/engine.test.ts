@@ -1816,5 +1816,70 @@ test('stage pointer tracking uses canvas bounding rect to eliminate padding offs
   );
 });
 
+test('3D Gaussian Splatting generator statelessly derives 3D volumetric primitive scenes', async () => {
+  const { generateSplatScene, sampleGaussianSplat } = await import('../src/core/splat.ts');
+  const { DEFAULT_FORMAT } = await import('../src/core/format.ts');
+  const seed = randomSeed();
+
+  const scene = generateSplatScene(DEFAULT_FORMAT, seed, 64);
+  assert.equal(scene.count, 64);
+  assert.equal(scene.primitives.length, 64);
+
+  const prim0 = scene.primitives[0];
+  assert.ok(Array.isArray(prim0.position) && prim0.position.length === 3);
+  assert.ok(Array.isArray(prim0.scale) && prim0.scale.length === 3);
+  assert.ok(Array.isArray(prim0.rotation) && prim0.rotation.length === 4);
+  assert.ok(Array.isArray(prim0.color) && prim0.color.length === 4);
+
+  // Determinism check
+  const prim0Again = sampleGaussianSplat(seed, 0);
+  assert.deepEqual(prim0.position, prim0Again.position);
+  assert.deepEqual(prim0.color, prim0Again.color);
+});
+
+test('Zero-Knowledge Provenance (ZK-Plate) minting and verification roundtrips', async () => {
+  const { mintZkPlateClaim, verifyZkPlateClaim } = await import('../src/core/zkPlate.ts');
+  const { DEFAULT_FORMAT } = await import('../src/core/format.ts');
+  const seed = randomSeed();
+
+  const claim = mintZkPlateClaim(DEFAULT_FORMAT, seed, '281474976710656');
+  assert.equal(claim.version, 'zk-v1');
+  assert.equal(claim.statement, '281474976710656');
+  assert.ok(claim.commitmentHash && claim.commitmentHash.length === 32);
+  assert.equal(verifyZkPlateClaim(claim, seed), true);
+
+  // Tampered claim check
+  const badClaim = { ...claim, statement: '000000000000000' };
+  assert.equal(verifyZkPlateClaim(badClaim, seed), false);
+});
+
+test('WebGPU Compute Shader acceleration module instantiates cleanly', async () => {
+  const { createComputeEngine } = await import('../src/gpu/compute.ts');
+  const engine = await createComputeEngine();
+  assert.ok(typeof engine.supported === 'boolean');
+  engine.dispose();
+});
+
+test('WebXR VR Manager quaternion pose transformation computes correct Euler yaw and pitch', async () => {
+  const { quaternionToYawPitch, createWebXRManager } = await import('../src/gpu/webxr.ts');
+  const { yaw, pitch } = quaternionToYawPitch(0, 0, 0, 1);
+  assert.equal(yaw, 0);
+  assert.equal(pitch, 0);
+
+  const manager = createWebXRManager();
+  assert.equal(typeof manager.isSupported, 'boolean');
+  assert.equal(manager.isActive, false);
+  manager.dispose();
+});
+
+test('P2P WebRTC Address Mesh node instantiates and generates node identifier', async () => {
+  const { createP2PMeshNode } = await import('../src/core/p2pMesh.ts');
+  const node = createP2PMeshNode('test-node-1');
+  assert.equal(node.nodeId, 'test-node-1');
+  assert.equal(node.peerCount, 0);
+  node.close();
+});
+
+
 
 

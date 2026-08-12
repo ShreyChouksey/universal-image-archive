@@ -60,6 +60,29 @@ import { Stage } from './ui/stage';
 import { Reader, drawHistogram } from './ui/reader';
 import { addressAnchors, archiveAnchors, describeDecimalCost, gridFunFacts } from './core/magnitude';
 import { bytesHuman, group, scaleWord, superscript } from './ui/numbers';
+import { createComputeEngine } from './gpu/compute';
+import { generateSplatScene, sampleGaussianSplat } from './core/splat';
+import { mintZkPlateClaim, verifyZkPlateClaim } from './core/zkPlate';
+import { createWebXRManager } from './gpu/webxr';
+import { createP2PMeshNode } from './core/p2pMesh';
+
+declare global {
+  interface Window {
+    UIA_FRONTIER?: {
+      computeEngine: Awaited<ReturnType<typeof createComputeEngine>>;
+      webxrManager: ReturnType<typeof createWebXRManager>;
+      p2pMeshNode: ReturnType<typeof createP2PMeshNode>;
+      splat: {
+        generateSplatScene: typeof generateSplatScene;
+        sampleGaussianSplat: typeof sampleGaussianSplat;
+      };
+      zkPlate: {
+        mintZkPlateClaim: typeof mintZkPlateClaim;
+        verifyZkPlateClaim: typeof verifyZkPlateClaim;
+      };
+    };
+  }
+}
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -2245,6 +2268,21 @@ async function boot(): Promise<void> {
       default: return;
     }
   });
+
+  // Frontier Architecture Initialization
+  window.UIA_FRONTIER = {
+    computeEngine: await createComputeEngine(),
+    webxrManager: createWebXRManager(),
+    p2pMeshNode: createP2PMeshNode(),
+    splat: {
+      generateSplatScene,
+      sampleGaussianSplat,
+    },
+    zkPlate: {
+      mintZkPlateClaim,
+      verifyZkPlateClaim,
+    },
+  };
 
   // First light
   stage.setFormat(state.format);

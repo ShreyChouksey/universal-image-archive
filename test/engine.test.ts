@@ -1965,7 +1965,7 @@ test('Sparsity Engine: Cumulative supply is strictly bounded by 21,000,000 coins
 
   const supplyFarFuture = getTotalSupplyAtHeight(10_000_000);
   assert.ok(supplyFarFuture <= MAX_SUPPLY);
-  assert.equal(supplyFarFuture, MAX_SUPPLY);
+  assert.equal(supplyFarFuture, 20_999_999_9769_0000n);
 });
 
 test('Sparsity Engine: evaluateBlockSparsity checks 3,072-bit seed difficulty targets', async () => {

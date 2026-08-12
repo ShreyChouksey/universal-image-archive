@@ -2077,6 +2077,37 @@ test('Layer 1.5 Mining: mineBlock3072 finds valid nonce and verifyBlockMining307
   assert.notEqual(verifyBad.hashHex, res.hashHex);
 });
 
+test('Layer 1.5 Full Sparsity: compressScratchpadToVector3072 yields 96-word (3,072-bit) uncompressed vector', async () => {
+  const { compressScratchpadToVector3072, countVectorLeadingZeros3072 } = await import('../src/core/sparsity3072.ts');
+
+  const dummyScratchpad = new Uint32Array(1024);
+  dummyScratchpad.fill(0x12345678);
+
+  const vector = compressScratchpadToVector3072(dummyScratchpad);
+  assert.equal(vector.length, 96);
+
+  const lz = countVectorLeadingZeros3072(vector);
+  assert.ok(typeof lz === 'number');
+});
+
+test('Layer 1.5 Full Sparsity: mineBlock3072Full mines block against full 3,072-bit vector targets without 256-bit bottleneck', async () => {
+  const { mineBlock3072Full, evaluateFullSparsity3072 } = await import('../src/core/sparsity3072.ts');
+  const { createEmptyBlock384, blockToSeed3072, encodeBlock384 } = await import('../src/core/block384.ts');
+
+  const block = createEmptyBlock384();
+  block.blockHeight = 42;
+
+  const mined = mineBlock3072Full(block, 1, 500, 1);
+  assert.equal(mined.found, true);
+  assert.ok(mined.seed !== null);
+
+  const seed = blockToSeed3072(encodeBlock384(mined.minedBlock!));
+  const evalResult = evaluateFullSparsity3072(seed, 1, 1);
+  assert.equal(evalResult.valid, true);
+  assert.equal(evalResult.vectorHex.length, 768); // 96 words * 8 hex chars = 768 hex chars (3,072 bits)
+});
+
+
 
 
 

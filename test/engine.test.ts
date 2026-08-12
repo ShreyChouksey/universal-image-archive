@@ -2207,6 +2207,42 @@ test('Layer 2.5 ZK-STARK: generateSTARKProof3072 generates valid proof and verif
   assert.equal(isValidTampered, false);
 });
 
+test('Layer 3.0 P2P Broadcast: P2PBroadcastMesh3072 relays blocks and transactions to connected peers', async () => {
+  const { P2PBroadcastMesh3072 } = await import('../src/core/p2pBroadcast3072.ts');
+  const { createEmptyBlock384 } = await import('../src/core/block384.ts');
+
+  const nodeA = new P2PBroadcastMesh3072('node-A');
+  const nodeB = new P2PBroadcastMesh3072('node-B');
+
+  // Connect nodeA to nodeB via direct buffer pass
+  nodeA.addPeer(nodeB.nodeId, (msg) => {
+    nodeB.receiveMessage(msg);
+  });
+
+  let receivedBlock: any = null;
+  nodeB.onBlock((block) => {
+    receivedBlock = block;
+  });
+
+  const block = createEmptyBlock384();
+  block.blockHeight = 999;
+  block.nonce = 123456789n;
+
+  nodeA.broadcastBlock(block);
+  assert.ok(receivedBlock !== null);
+  assert.equal(receivedBlock.blockHeight, 999);
+  assert.equal(receivedBlock.nonce, 123456789n);
+
+  // Duplicate message test (LRU deduplication)
+  let repeatCount = 0;
+  nodeB.onBlock(() => {
+    repeatCount++;
+  });
+  nodeA.broadcastBlock(block);
+  assert.equal(repeatCount, 0); // Second broadcast ignored as duplicate
+});
+
+
 
 
 

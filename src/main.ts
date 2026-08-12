@@ -35,7 +35,7 @@ import {
   type PlateReport,
   type PlateVerdict,
 } from './core/plate';
-import { BIGINT_MAX_BYTES, DECIMAL_MODULUS, archiveScale, sampleSeed, unpackAddressFile } from './core/address';
+import { BIGINT_MAX_BYTES, DECIMAL_MODULUS, archiveScale, hexSlice, sampleSeed, unpackAddressFile } from './core/address';
 import {
   randomSeed,
   seedAdd,
@@ -681,6 +681,7 @@ function setSeed(seed: Seed, { pushUrl = true, offset = 0 } = {}): void {
 
   const parking = wasAddressMode && state.held.kind !== 'none';
   if (parking) toast(`${heldLabel()} is still loaded — click return on stage to view it`);
+  if (!parking) void clearActiveAddressState();
 
   renderSeed();
   renderSeedLocation();
@@ -873,6 +874,80 @@ async function applyStep(delta: number): Promise<void> {
   }
 }
 
+let currentAddressHex: string | null = null;
+
+// ---------------------------------------------------------------------------
+// Address State Persistence (IndexedDB + Hash Sync)
+// ---------------------------------------------------------------------------
+
+const IDB_NAME = 'uia_storage';
+const IDB_STORE = 'active_address';
+
+function openAddressDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains(IDB_STORE)) {
+        req.result.createObjectStore(IDB_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function saveActiveAddressState(bytes: Uint8Array): Promise<void> {
+  try {
+    const hex = hexSlice(bytes, 0, bytes.length);
+    currentAddressHex = hex;
+    const db = await openAddressDb();
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put(
+      {
+        bytes: bytes.slice().buffer,
+        hex,
+        resolutionId: state.format.resolution.id,
+        depthId: state.format.depth.id,
+        geometry: geometryOf(),
+      },
+      'current',
+    );
+  } catch (e) {
+    console.warn('archive: IDB address save failed', e);
+  }
+}
+
+async function loadActiveAddressState(): Promise<{
+  bytes: ArrayBuffer;
+  hex: string;
+  resolutionId: string;
+  depthId: string;
+  geometry: string;
+} | null> {
+  try {
+    const db = await openAddressDb();
+    return new Promise((resolve) => {
+      const tx = db.transaction(IDB_STORE, 'readonly');
+      const req = tx.objectStore(IDB_STORE).get('current');
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  } catch (e) {
+    return null;
+  }
+}
+
+async function clearActiveAddressState(): Promise<void> {
+  currentAddressHex = null;
+  try {
+    const db = await openAddressDb();
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).delete('current');
+  } catch (e) {
+    // ignore
+  }
+}
+
 /** Pull the worker's current address onto the GPU and into the loupe's reach. */
 async function adoptWorkerAddress(): Promise<void> {
   state.offset = 0;
@@ -881,13 +956,32 @@ async function adoptWorkerAddress(): Promise<void> {
   addressTexels = tex.data;
   renderer.setAddressTexture(tex.width, tex.height, tex.data);
   state.mode = 'address';
+
+  // Persist the loaded address bytes so reloads stay on this exact image
+  const totalBytes = state.format.resolution.width * state.format.resolution.height * state.format.depth.bytesPerPixel;
+  try {
+    const sliceRes = await client.slice(0, totalBytes);
+    await saveActiveAddressState(sliceRes.bytes);
+  } catch (e) {
+    console.warn('archive: slice address failed', e);
+  }
+
   requestDraw();
+  syncUrl();
 }
 
 function syncUrl(): void {
   const params = new URLSearchParams();
-  params.set('c', seedToHex(state.seed));
-  if (state.mode === 'seed' && state.offset !== 0) params.set('o', String(state.offset));
+  if (state.mode === 'address' && currentAddressHex) {
+    if (currentAddressHex.length <= 4096) {
+      params.set('a', currentAddressHex);
+    } else {
+      params.set('a', currentAddressHex.slice(0, 32) + '...' + currentAddressHex.slice(-32));
+    }
+  } else {
+    params.set('c', seedToHex(state.seed));
+    if (state.mode === 'seed' && state.offset !== 0) params.set('o', String(state.offset));
+  }
   params.set('g', geometryOf());
   params.set('r', state.format.resolution.id);
   params.set('d', state.format.depth.id);
@@ -901,6 +995,10 @@ function readUrl(): void {
   if (c) {
     const seed = seedFromHex(c);
     if (seed) state.seed = seed;
+  }
+  const a = params.get('a');
+  if (a && /^[0-9a-fA-F]+$/.test(a)) {
+    currentAddressHex = a;
   }
   const o = Number(params.get('o'));
   if (Number.isSafeInteger(o)) state.offset = o;
@@ -940,6 +1038,7 @@ function applyFormat(): void {
   stage.setFormat(state.format);
   renderScale();
   state.held = { kind: 'none' };
+  void clearActiveAddressState();
   addressTexels = null;
   renderer.setAddressTexture(1, 1, null);
   state.mode = 'seed';
@@ -2130,6 +2229,49 @@ async function boot(): Promise<void> {
   updateLaneUI();
   updateLowBitsHint();
   updateSearchControls();
+
+  // Address state restoration check: restore uploaded/materialised address across page reloads
+  const restored = await loadActiveAddressState();
+  const hashParams = new URLSearchParams(location.hash.slice(1));
+  const hashHex = hashParams.get('a');
+
+  let restoredBytes: Uint8Array | null = null;
+  if (hashHex && /^[0-9a-fA-F]+$/.test(hashHex)) {
+    const expectedLength =
+      state.format.resolution.width * state.format.resolution.height * state.format.depth.bytesPerPixel * 2;
+    if (hashHex.length === expectedLength) {
+      const buf = new Uint8Array(hashHex.length / 2);
+      for (let i = 0; i < buf.length; i++) {
+        buf[i] = parseInt(hashHex.slice(i * 2, i * 2 + 2), 16);
+      }
+      restoredBytes = buf;
+    }
+  }
+
+  if (!restoredBytes && restored) {
+    const expectedBytes =
+      state.format.resolution.width * state.format.resolution.height * state.format.depth.bytesPerPixel;
+    if (
+      restored.resolutionId === state.format.resolution.id &&
+      restored.depthId === state.format.depth.id &&
+      restored.geometry === geometryOf() &&
+      restored.bytes.byteLength === expectedBytes
+    ) {
+      restoredBytes = new Uint8Array(restored.bytes);
+    }
+  }
+
+  if (restoredBytes) {
+    try {
+      await client.adopt(state.format, restoredBytes.buffer as ArrayBuffer);
+      await adoptWorkerAddress();
+      await renderAddressReadout();
+      updateLaneUI();
+    } catch (err) {
+      console.warn('archive: could not restore active address', err);
+    }
+  }
+
   syncUrl();
   requestDraw();
   canvas.dataset.live = 'true';

@@ -1991,6 +1991,57 @@ test('Sparsity Engine: calculateNextDifficulty retargets difficulty based on act
   assert.equal(lowerDiff, 15);
 });
 
+test('Block384: Empty block instantiation creates valid 384-byte container structure', async () => {
+  const { createEmptyBlock384, encodeBlock384, BLOCK384_BYTE_SIZE } = await import('../src/core/block384.ts');
+  const block = createEmptyBlock384();
+  const packed = encodeBlock384(block);
+  assert.equal(packed.length, BLOCK384_BYTE_SIZE);
+});
+
+test('Block384: Packing and unpacking roundtrips byte-for-byte with exact field offsets', async () => {
+  const { createEmptyBlock384, encodeBlock384, decodeBlock384 } = await import('../src/core/block384.ts');
+
+  const block = createEmptyBlock384();
+  block.prevBlockHash.fill(0xaa);
+  block.stateRoot.fill(0xbb);
+  block.txMerkleRoot.fill(0xcc);
+  block.timestamp = 1770800000000n;
+  block.blockHeight = 420000;
+  block.targetBits = 24;
+  block.nonce = 9876543210n;
+  block.txPayload.fill(0xee);
+  block.solvedTail.fill(0x77);
+
+  const packed = encodeBlock384(block);
+  const unpacked = decodeBlock384(packed);
+
+  assert.deepEqual(unpacked.prevBlockHash, block.prevBlockHash);
+  assert.deepEqual(unpacked.stateRoot, block.stateRoot);
+  assert.deepEqual(unpacked.txMerkleRoot, block.txMerkleRoot);
+  assert.equal(unpacked.timestamp, block.timestamp);
+  assert.equal(unpacked.blockHeight, block.blockHeight);
+  assert.equal(unpacked.targetBits, block.targetBits);
+  assert.equal(unpacked.nonce, block.nonce);
+  assert.deepEqual(unpacked.txPayload, block.txPayload);
+  assert.deepEqual(unpacked.solvedTail, block.solvedTail);
+});
+
+test('Block384: Bijective conversion to Seed3072 and back preserves all 3,072 bits', async () => {
+  const { createEmptyBlock384, encodeBlock384, blockToSeed3072, seed3072ToBlockBytes } = await import('../src/core/block384.ts');
+
+  const block = createEmptyBlock384();
+  block.prevBlockHash.fill(0x12);
+  block.txPayload.fill(0x34);
+  const originalBytes = encodeBlock384(block);
+
+  const seed = blockToSeed3072(originalBytes);
+  assert.equal(seed.length, 96);
+
+  const restoredBytes = seed3072ToBlockBytes(seed);
+  assert.deepEqual(restoredBytes, originalBytes);
+});
+
+
 
 
 

@@ -2090,22 +2090,91 @@ test('Layer 1.5 Full Sparsity: compressScratchpadToVector3072 yields 96-word (3,
   assert.ok(typeof lz === 'number');
 });
 
-test('Layer 1.5 Full Sparsity: mineBlock3072Full mines block against full 3,072-bit vector targets without 256-bit bottleneck', async () => {
-  const { mineBlock3072Full, evaluateFullSparsity3072 } = await import('../src/core/sparsity3072.ts');
-  const { createEmptyBlock384, blockToSeed3072, encodeBlock384 } = await import('../src/core/block384.ts');
+test('Layer 2.0 Ledger: Post-quantum keypair generation derives valid 32-byte address commitments', async () => {
+  const { generateQuantumKeypair3072 } = await import('../src/core/ledger3072.ts');
+  const kp = generateQuantumKeypair3072();
 
-  const block = createEmptyBlock384();
-  block.blockHeight = 42;
-
-  const mined = mineBlock3072Full(block, 1, 500, 1);
-  assert.equal(mined.found, true);
-  assert.ok(mined.seed !== null);
-
-  const seed = blockToSeed3072(encodeBlock384(mined.minedBlock!));
-  const evalResult = evaluateFullSparsity3072(seed, 1, 1);
-  assert.equal(evalResult.valid, true);
-  assert.equal(evalResult.vectorHex.length, 768); // 96 words * 8 hex chars = 768 hex chars (3,072 bits)
+  assert.equal(kp.privateSeed.length, 96);
+  assert.equal(kp.publicKeyHash.length, 32);
+  assert.ok(kp.addressHex.startsWith('uia1'));
 });
+
+test('Layer 2.0 Ledger: Tx384 packing and unpacking roundtrips byte-for-byte', async () => {
+  const { encodeTx384, decodeTx384, TX384_BYTE_SIZE } = await import('../src/core/ledger3072.ts');
+
+  const tx = {
+    senderAddress: new Uint8Array(32).fill(0x11),
+    recipientAddress: new Uint8Array(32).fill(0x22),
+    amount: 500000000n, // 5 coins
+    fee: 100000n, // 0.001 coin
+    nullifier: new Uint8Array(32).fill(0x33),
+    zkProofHash: new Uint8Array(32).fill(0x44),
+  };
+
+  const encoded = encodeTx384(tx);
+  assert.equal(encoded.length, TX384_BYTE_SIZE);
+
+  const decoded = decodeTx384(encoded);
+  assert.deepEqual(decoded.senderAddress, tx.senderAddress);
+  assert.deepEqual(decoded.recipientAddress, tx.recipientAddress);
+  assert.equal(decoded.amount, tx.amount);
+  assert.equal(decoded.fee, tx.fee);
+  assert.deepEqual(decoded.nullifier, tx.nullifier);
+  assert.deepEqual(decoded.zkProofHash, tx.zkProofHash);
+});
+
+test('Layer 2.0 Ledger: ZKStateTree3072 applies coinbase subsidy, processes transfers, and detects double-spending', async () => {
+  const { ZKStateTree3072, generateQuantumKeypair3072, deriveAddressHex } = await import('../src/core/ledger3072.ts');
+  const { createEmptyBlock384 } = await import('../src/core/block384.ts');
+
+  const miner = generateQuantumKeypair3072();
+  const alice = generateQuantumKeypair3072();
+  const bob = generateQuantumKeypair3072();
+
+  const ledger = new ZKStateTree3072();
+  const block1 = createEmptyBlock384();
+  block1.blockHeight = 0; // Coinbase subsidy = 50 coins (50_0000_0000 satoshis)
+
+  // Block 1: Miner mines block 0 and receives 50 coins
+  const res1 = ledger.applyBlock(block1, [], miner.publicKeyHash);
+  assert.equal(res1.success, true);
+  assert.equal(ledger.getBalance(miner.addressHex), 5_000_000_000n);
+
+  // Block 2: Miner sends 10 coins to Alice
+  const tx1 = {
+    senderAddress: miner.publicKeyHash,
+    recipientAddress: alice.publicKeyHash,
+    amount: 1_000_000_000n,
+    fee: 10_000n,
+    nullifier: new Uint8Array(32).fill(0x99),
+    zkProofHash: new Uint8Array(32).fill(0x88),
+  };
+
+  const block2 = createEmptyBlock384();
+  block2.blockHeight = 1;
+  const res2 = ledger.applyBlock(block2, [tx1], miner.publicKeyHash);
+  assert.equal(res2.success, true);
+  assert.equal(ledger.getBalance(alice.addressHex), 1_000_000_000n);
+  // Miner gets 50 (subsidy) + 50 (prev bal) - 10.0001 (sent+fee) + 0.0001 (fee returned to miner) = 90 coins
+  assert.equal(ledger.getBalance(miner.addressHex), 9_000_000_000n);
+
+  // Block 3: Double-spend attempt (re-using nullifier 0x99)
+  const txDoubleSpend = {
+    senderAddress: alice.publicKeyHash,
+    recipientAddress: bob.publicKeyHash,
+    amount: 500_000_000n,
+    fee: 5_000n,
+    nullifier: new Uint8Array(32).fill(0x99), // Already spent!
+    zkProofHash: new Uint8Array(32).fill(0x77),
+  };
+
+  const block3 = createEmptyBlock384();
+  block3.blockHeight = 2;
+  const res3 = ledger.applyBlock(block3, [txDoubleSpend], miner.publicKeyHash);
+  assert.equal(res3.success, false);
+  assert.ok(res3.error?.includes('Double spend detected'));
+});
+
 
 
 

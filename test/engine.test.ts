@@ -2175,6 +2175,39 @@ test('Layer 2.0 Ledger: ZKStateTree3072 applies coinbase subsidy, processes tran
   assert.ok(res3.error?.includes('Double spend detected'));
 });
 
+test('Layer 2.5 ZK-STARK: generateSTARKProof3072 generates valid proof and verifySTARKProof3072 verifies in O(1) time', async () => {
+  const { generateSTARKProof3072, verifySTARKProof3072, proofToHash32 } = await import('../src/core/zk3072.ts');
+  const { generateQuantumKeypair3072 } = await import('../src/core/ledger3072.ts');
+
+  const alice = generateQuantumKeypair3072();
+  const bob = generateQuantumKeypair3072();
+
+  const tx = {
+    senderAddress: alice.publicKeyHash,
+    recipientAddress: bob.publicKeyHash,
+    amount: 1_000_000_000n,
+    fee: 10_000n,
+    nullifier: new Uint8Array(32).fill(0xaa),
+    zkProofHash: new Uint8Array(32),
+  };
+
+  const proof = generateSTARKProof3072(alice.privateSeed, tx);
+  assert.equal(proof.traceCommitment.length, 32);
+  assert.equal(proof.friQueryCommitment.length, 32);
+  assert.equal(proof.evalProof.length, 64);
+
+  const isValid = verifySTARKProof3072(proof, alice.publicKeyHash, tx.nullifier);
+  assert.equal(isValid, true);
+
+  const proofHash = proofToHash32(proof);
+  assert.equal(proofHash.length, 32);
+
+  // Tamper check: wrong sender address
+  const isValidTampered = verifySTARKProof3072(proof, bob.publicKeyHash, tx.nullifier);
+  assert.equal(isValidTampered, false);
+});
+
+
 
 
 

@@ -1,6 +1,6 @@
 # Math & Engine Core Invariants Rule
 
-This rule specifies the mandatory mathematical invariants for all past and future developments in the Universal Image Archive codebase.
+This rule specifies the mandatory mathematical, architectural, and visual invariants for all past and future developments in the Universal Image Archive codebase.
 
 ## 1. WebGPU / CPU Self-Check Probe Bounds (`src/main.ts`)
 - When running `runSelfChecks()`, the probe loop checks GPU-rendered pixels against `sampleSeed()`.
@@ -23,3 +23,12 @@ This rule specifies the mandatory mathematical invariants for all past and futur
 ## 5. Plate Minting & Verification Requirements (`src/core/plate.ts`)
 - Plate minting and self-checks REQUIRE **4K UHD (3840×2160)** resolution at **48-bit depth**.
 - `plateSupported(format)` MUST check both `format.resolution.id === 'uhd4k'` and `format.depth.bpc === 16`.
+
+## 6. Exception-Safe GPU / VRAM Cleanup (`src/gpu/renderer.ts`)
+- In `renderer.probe()`, all offscreen textures and staging readback buffers MUST be allocated and destroyed within `try { ... } finally { ... }` blocks.
+- **Rationale**: Any exception during shader pipeline binding or mapped buffer reads must not leak VRAM or leave unmapped GPU buffers locked.
+
+## 7. WCAG AA Contrast Standards & Theme Palette (`src/styles/app.css`)
+- Foreground text colors (`--ink`, `--ink-2`, `--accent`) mapped over background panels (`--ground-1`, `--ground-2`) MUST meet or exceed WCAG AA contrast ratio of 4.5:1 against `#151311`.
+- UI interactive controls and status readouts MUST maintain consistent focus outlines and accessible color contrasts.
+

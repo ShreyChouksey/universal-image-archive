@@ -160,7 +160,7 @@ export class Stage {
 
     let lastPointerTime = performance.now();
     root.addEventListener('pointermove', (e) => {
-      const rect = root.getBoundingClientRect();
+      const canvasRect = this.#canvas.getBoundingClientRect();
       const now = performance.now();
       const dt = Math.max(1, now - lastPointerTime);
       lastPointerTime = now;
@@ -171,7 +171,7 @@ export class Stage {
           this.#hooks.onEntropyMotion?.(pdx, pdy, dt);
         }
       }
-      this.#cursor = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      this.#cursor = { x: e.clientX - canvasRect.left, y: e.clientY - canvasRect.top };
       if (this.#dragging && this.#lastPointer) {
         const dx = (e.clientX - this.#lastPointer.x) * this.#dpr;
         const dy = (e.clientY - this.#lastPointer.y) * this.#dpr;
@@ -214,9 +214,9 @@ export class Stage {
       'wheel',
       (e) => {
         e.preventDefault();
-        const rect = root.getBoundingClientRect();
-        const px = (e.clientX - rect.left) * this.#dpr;
-        const py = (e.clientY - rect.top) * this.#dpr;
+        const canvasRect = this.#canvas.getBoundingClientRect();
+        const px = (e.clientX - canvasRect.left) * this.#dpr;
+        const py = (e.clientY - canvasRect.top) * this.#dpr;
         this.zoomAt(px, py, Math.exp(-e.deltaY * 0.0015));
       },
       { passive: false },

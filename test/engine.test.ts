@@ -1801,4 +1801,20 @@ test('renderer.probe source contract enforces try-finally exception safety for G
   assert.ok(code.includes('if (fboTex) gl.deleteTexture(fboTex);'), 'WebGL2 probe must safely delete texture in finally');
 });
 
+test('stage pointer tracking uses canvas bounding rect to eliminate padding offset misalignment', async () => {
+  const fs = await import('node:fs/promises');
+  const path = await import('node:path');
+  const code = await fs.readFile(path.resolve('src/ui/stage.ts'), 'utf8');
+
+  assert.ok(
+    code.includes('const canvasRect = this.#canvas.getBoundingClientRect()'),
+    'Stage pointer handlers must measure coordinates relative to canvas bounding box',
+  );
+  assert.ok(
+    code.includes('this.#cursor = { x: e.clientX - canvasRect.left, y: e.clientY - canvasRect.top }'),
+    'Stage pointer handler must subtract canvasRect.left/top for 100% pixel accuracy',
+  );
+});
+
+
 

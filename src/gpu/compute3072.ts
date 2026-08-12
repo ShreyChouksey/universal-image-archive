@@ -55,7 +55,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   for (var r = 0u; r < rounds; r = r + 1u) {
     for (var i = 0u; i < 96u; i = i + 2u) {
       let p = mulhilo(C0, state[i]);
-      let k = seedBuffer[i] ^ seedBuffer[i + 1u] ^ (C1 + r);
+      let k = seedBuffer[i] ^ (seedBuffer[i + 1u] * 0x9e3779b9u) ^ (C1 + r);
       let next_idx = (i + 1u) % 96u;
       state[i] = p.y ^ state[next_idx] ^ k;
       state[next_idx] = p.x;

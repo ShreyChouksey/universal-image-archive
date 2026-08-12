@@ -54,11 +54,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let rounds = min(64u, max(1u, params.rounds));
   for (var r = 0u; r < rounds; r = r + 1u) {
     for (var i = 0u; i < 96u; i = i + 2u) {
+      let src = (i + r * 3u) % 96u;
       let p = mulhilo(C0, state[i]);
-      let k = seedBuffer[i] ^ (seedBuffer[i + 1u] * 0x9e3779b9u) ^ (C1 + r);
+      let k = seedBuffer[src] ^ (seedBuffer[(src + 1u) % 96u] * 0x9e3779b9u) ^ (C1 + r);
       let next_idx = (i + 1u) % 96u;
       state[i] = p.y ^ state[next_idx] ^ k;
-      state[next_idx] = p.x;
+      state[next_idx] = p.x ^ state[(i + 3u) % 96u];
     }
   }
 

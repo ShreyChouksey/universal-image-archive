@@ -45,16 +45,17 @@ export function philox96x32(
     out[i] = seed[i]! >>> 0;
   }
 
-  // Feistel mixing rounds
+  // Feistel mixing rounds with full cross-word diffusion
   for (let r = 0; r < rounds; r++) {
     const c0 = PHILOX_CONSTANTS[r % 8]!;
     const c1 = PHILOX_CONSTANTS[(r + 1) % 8]!;
 
     for (let i = 0; i < 96; i += 2) {
+      const src = (i + r * 3) % 96;
       const [hi, lo] = mulhilo(c0, out[i]!);
-      const key = seed[i]! ^ Math.imul(seed[i + 1]!, 0x9e3779b9) ^ (c1 + r);
+      const key = seed[src]! ^ Math.imul(seed[(src + 1) % 96]!, 0x9e3779b9) ^ (c1 + r);
       out[i] = (lo ^ out[(i + 1) % 96]! ^ key) >>> 0;
-      out[(i + 1) % 96] = hi >>> 0;
+      out[(i + 1) % 96] = (hi ^ out[(i + 3) % 96]!) >>> 0;
     }
   }
 }

@@ -1756,14 +1756,17 @@ test('UI theme color contrast ratios meet WCAG AA baseline against ground #15131
   const lInk1 = luminance('#f0eae0');
   const lInk2 = luminance('#c8bdae');
   const lInk3 = luminance('#9b9080');
+  const lInkMuted = luminance('#8c8275');
 
   const crInk1 = contrast(lInk1, lGround);
   const crInk2 = contrast(lInk2, lGround);
   const crInk3 = contrast(lInk3, lGround);
+  const crInkMuted = contrast(lInkMuted, lGround);
 
   assert.ok(crInk1 >= 7.0, `--ink contrast ${crInk1.toFixed(2)}:1 must meet AAA baseline (>= 7.0)`);
   assert.ok(crInk2 >= 7.0, `--ink-2 contrast ${crInk2.toFixed(2)}:1 must meet AAA baseline (>= 7.0)`);
   assert.ok(crInk3 >= 4.5, `--ink-3 contrast ${crInk3.toFixed(2)}:1 must meet AA baseline (>= 4.5)`);
+  assert.ok(crInkMuted >= 4.5, `--ink-muted contrast ${crInkMuted.toFixed(2)}:1 must meet AA baseline (>= 4.5)`);
 });
 
 test('equirectangular projection handles pole singularities and 180 deg longitude wrap', () => {
@@ -1784,4 +1787,18 @@ test('equirectangular projection handles pole singularities and 180 deg longitud
   assert.ok(wrapRight.x >= 0 && wrapRight.x < width, 'Wrapped texel X must be in [0, width)');
   assert.ok(wrapLeft.x >= 0 && wrapLeft.x < width, 'Wrapped texel X must be in [0, width)');
 });
+
+test('renderer.probe source contract enforces try-finally exception safety for GPU resources', async () => {
+  const fs = await import('node:fs/promises');
+  const path = await import('node:path');
+  const code = await fs.readFile(path.resolve('src/gpu/renderer.ts'), 'utf8');
+
+  // Verify that probe contains try and finally blocks that call destroy() and deleteTexture()
+  assert.ok(code.includes('async probe('), 'renderer.ts must contain probe()');
+  assert.ok(code.includes('if (readback) readback.destroy();'), 'WebGPU probe must safely destroy readback buffer in finally');
+  assert.ok(code.includes('if (target) target.destroy();'), 'WebGPU probe must safely destroy target texture in finally');
+  assert.ok(code.includes('if (fbo) gl.deleteFramebuffer(fbo);'), 'WebGL2 probe must safely delete framebuffer in finally');
+  assert.ok(code.includes('if (fboTex) gl.deleteTexture(fboTex);'), 'WebGL2 probe must safely delete texture in finally');
+});
+
 

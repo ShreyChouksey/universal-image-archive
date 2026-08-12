@@ -311,57 +311,60 @@ async function createWebGPU(canvas: HTMLCanvasElement): Promise<Renderer | null>
         fragment: { module, entryPoint: 'fs', targets: [{ format: 'rgba8unorm' }] },
         primitive: { topology: 'triangle-list' },
       });
-      const target = device.createTexture({
-        size: [PROBE, PROBE],
-        format: 'rgba8unorm',
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
-      });
-      // copyTextureToBuffer requires bytesPerRow to be a multiple of 256.
-      const bytesPerRow = 256;
-      const readback = device.createBuffer({
-        size: bytesPerRow * PROBE,
-        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-      });
-
-      fillUniforms(
-        scratchF32,
-        scratchU32,
-        // By default the probe checks the bare generator, so the patch is off.
-        options?.withPatch ? input : { ...input, patch: null },
-        look
-          ? { ...FLAT_VIEW, ...look }
-          : { ...FLAT_VIEW, x: (at?.x ?? 0) + PROBE / 2, y: (at?.y ?? 0) + PROBE / 2, zoom: 1 },
-        PROBE,
-        PROBE,
-        look !== undefined,
-      );
-      device.queue.writeBuffer(uniformBuffer, 0, scratch);
-
-      const group = device.createBindGroup({
-        layout: probePipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: uniformBuffer } },
-          { binding: 1, resource: addressTexture.createView() },
-        ],
-      });
-
-      const encoder = device.createCommandEncoder();
-      const pass = encoder.beginRenderPass({
-        colorAttachments: [
-          { view: target.createView(), clearValue: { r: 0, g: 0, b: 0, a: 1 }, loadOp: 'clear', storeOp: 'store' },
-        ],
-      });
-      pass.setPipeline(probePipeline);
-      pass.setBindGroup(0, group);
-      pass.draw(3);
-      pass.end();
-      encoder.copyTextureToBuffer({ texture: target }, { buffer: readback, bytesPerRow }, {
-        width: PROBE,
-        height: PROBE,
-      });
-      device.queue.submit([encoder.finish()]);
+      let target: GPUTexture | null = null;
+      let readback: GPUBuffer | null = null;
 
       try {
+        target = device.createTexture({
+          size: [PROBE, PROBE],
+          format: 'rgba8unorm',
+          usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+        });
+        // copyTextureToBuffer requires bytesPerRow to be a multiple of 256.
+        const bytesPerRow = 256;
+        readback = device.createBuffer({
+          size: bytesPerRow * PROBE,
+          usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+        });
+
+        fillUniforms(
+          scratchF32,
+          scratchU32,
+          // By default the probe checks the bare generator, so the patch is off.
+          options?.withPatch ? input : { ...input, patch: null },
+          look
+            ? { ...FLAT_VIEW, ...look }
+            : { ...FLAT_VIEW, x: (at?.x ?? 0) + PROBE / 2, y: (at?.y ?? 0) + PROBE / 2, zoom: 1 },
+          PROBE,
+          PROBE,
+          look !== undefined,
+        );
+        device.queue.writeBuffer(uniformBuffer, 0, scratch);
+
+        const group = device.createBindGroup({
+          layout: probePipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: { buffer: uniformBuffer } },
+            { binding: 1, resource: addressTexture.createView() },
+          ],
+        });
+
+        const encoder = device.createCommandEncoder();
+        const pass = encoder.beginRenderPass({
+          colorAttachments: [
+            { view: target.createView(), clearValue: { r: 0, g: 0, b: 0, a: 1 }, loadOp: 'clear', storeOp: 'store' },
+          ],
+        });
+        pass.setPipeline(probePipeline);
+        pass.setBindGroup(0, group);
+        pass.draw(3);
+        pass.end();
+        encoder.copyTextureToBuffer({ texture: target }, { buffer: readback, bytesPerRow }, {
+          width: PROBE,
+          height: PROBE,
+        });
+        device.queue.submit([encoder.finish()]);
+
         await readback.mapAsync(GPUMapMode.READ);
         const src = new Uint8Array(readback.getMappedRange());
         // WebGPU render targets are top-down, so readback row r is image row r.
@@ -378,8 +381,8 @@ async function createWebGPU(canvas: HTMLCanvasElement): Promise<Renderer | null>
         readback.unmap();
         return out;
       } finally {
-        readback.destroy();
-        target.destroy();
+        if (readback) readback.destroy();
+        if (target) target.destroy();
         // Restore the canvas-sized uniforms for the next real frame.
         fillUniforms(scratchF32, scratchU32, input, FLAT_VIEW, viewW, viewH, isSphere(input));
       }
@@ -565,70 +568,76 @@ function createWebGL2(canvas: HTMLCanvasElement): Renderer | null {
     async probe(input, options) {
       const look = options?.look;
       const at = options?.at;
-      const fboTex = gl.createTexture()!;
-      gl.bindTexture(gl.TEXTURE_2D, fboTex);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, PROBE, PROBE, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      let fboTex: WebGLTexture | null = null;
+      let fbo: WebGLFramebuffer | null = null;
+      try {
+        fboTex = gl.createTexture();
+        if (!fboTex) throw new Error('Failed to create probe texture');
+        gl.bindTexture(gl.TEXTURE_2D, fboTex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, PROBE, PROBE, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 
-      const fbo = gl.createFramebuffer();
-      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
-      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, fboTex, 0);
-      gl.viewport(0, 0, PROBE, PROBE);
+        fbo = gl.createFramebuffer();
+        if (!fbo) throw new Error('Failed to create probe framebuffer');
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, fboTex, 0);
+        gl.viewport(0, 0, PROBE, PROBE);
 
-      gl.useProgram(program);
-      gl.bindVertexArray(vao);
-      const v = look
-        ? { ...FLAT_VIEW, ...look }
-        : { ...FLAT_VIEW, x: (at?.x ?? 0) + PROBE / 2, y: (at?.y ?? 0) + PROBE / 2, zoom: 1 };
-      const probePatch = options?.withPatch ? (input.patch ?? null) : null;
-      gl.uniform4ui(
-        uniforms.patchInfo,
-        probePatch ? probePatch.firstPixel : 0,
-        probePatch ? probePatch.count : 0,
-        input.rounds ?? 12,
-        0,
-      );
-      if (probePatch) patchScratch.set(probePatch.values.subarray(0, PATCH_PIXELS * 4));
-      else patchScratch.fill(0);
-      gl.uniform4uiv(uniforms.patch, patchScratch);
-      gl.uniform2f(uniforms.imageSize, input.format.resolution.width, input.format.resolution.height);
-      gl.uniform2f(uniforms.viewSize, PROBE, PROBE);
-      gl.uniform4f(uniforms.view, v.x, v.y, v.zoom, v.fov);
-      gl.uniform4ui(uniforms.seed, input.seed[0], input.seed[1], input.seed[2], input.seed[3]);
-      gl.uniform4f(
-        uniforms.params,
-        input.format.depth.maxChannel,
-        (look ? 2 : 0) + (input.mode === 'address' ? 1 : 0),
-        v.yaw,
-        v.pitch,
-      );
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, texture);
-      gl.uniform1i(uniforms.addrTex, 0);
-      gl.drawArrays(gl.TRIANGLES, 0, 3);
+        gl.useProgram(program);
+        gl.bindVertexArray(vao);
+        const v = look
+          ? { ...FLAT_VIEW, ...look }
+          : { ...FLAT_VIEW, x: (at?.x ?? 0) + PROBE / 2, y: (at?.y ?? 0) + PROBE / 2, zoom: 1 };
+        const probePatch = options?.withPatch ? (input.patch ?? null) : null;
+        gl.uniform4ui(
+          uniforms.patchInfo,
+          probePatch ? probePatch.firstPixel : 0,
+          probePatch ? probePatch.count : 0,
+          input.rounds ?? 12,
+          0,
+        );
+        if (probePatch) patchScratch.set(probePatch.values.subarray(0, PATCH_PIXELS * 4));
+        else patchScratch.fill(0);
+        gl.uniform4uiv(uniforms.patch, patchScratch);
+        gl.uniform2f(uniforms.imageSize, input.format.resolution.width, input.format.resolution.height);
+        gl.uniform2f(uniforms.viewSize, PROBE, PROBE);
+        gl.uniform4f(uniforms.view, v.x, v.y, v.zoom, v.fov);
+        gl.uniform4ui(uniforms.seed, input.seed[0], input.seed[1], input.seed[2], input.seed[3]);
+        gl.uniform4f(
+          uniforms.params,
+          input.format.depth.maxChannel,
+          (look ? 2 : 0) + (input.mode === 'address' ? 1 : 0),
+          v.yaw,
+          v.pitch,
+        );
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.uniform1i(uniforms.addrTex, 0);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
 
-      const raw = new Uint8Array(PROBE * PROBE * 4);
-      gl.readPixels(0, 0, PROBE, PROBE, gl.RGBA, gl.UNSIGNED_BYTE, raw);
+        const raw = new Uint8Array(PROBE * PROBE * 4);
+        gl.readPixels(0, 0, PROBE, PROBE, gl.RGBA, gl.UNSIGNED_BYTE, raw);
 
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.deleteFramebuffer(fbo);
-      gl.deleteTexture(fboTex);
-      gl.viewport(0, 0, viewW, viewH);
-
-      // readPixels returns rows bottom-up, so readback row r is image row PROBE-1-r.
-      const out = new Uint8Array(PROBE * PROBE * 3);
-      for (let r = 0; r < PROBE; r++) {
-        const y = PROBE - 1 - r;
-        for (let x = 0; x < PROBE; x++) {
-          const s = (r * PROBE + x) * 4;
-          const d = (y * PROBE + x) * 3;
-          out[d] = raw[s];
-          out[d + 1] = raw[s + 1];
-          out[d + 2] = raw[s + 2];
+        // readPixels returns rows bottom-up, so readback row r is image row PROBE-1-r.
+        const out = new Uint8Array(PROBE * PROBE * 3);
+        for (let r = 0; r < PROBE; r++) {
+          const y = PROBE - 1 - r;
+          for (let x = 0; x < PROBE; x++) {
+            const s = (r * PROBE + x) * 4;
+            const d = (y * PROBE + x) * 3;
+            out[d] = raw[s];
+            out[d + 1] = raw[s + 1];
+            out[d + 2] = raw[s + 2];
+          }
         }
+        return out;
+      } finally {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        if (fbo) gl.deleteFramebuffer(fbo);
+        if (fboTex) gl.deleteTexture(fboTex);
+        gl.viewport(0, 0, viewW, viewH);
       }
-      return out;
     },
     dispose() {
       gl.deleteTexture(texture);

@@ -165,42 +165,44 @@ export function sampleSeed(
  * the part of the picture that actually changed — for a small step that is the
  * last row rather than all forty-seven megabytes.
  */
-export function bumpAddress(bytes: Uint8Array, delta: number): number {
-  if (delta === 0) return bytes.length;
-  const negative = delta < 0;
-  let mag = Math.abs(Math.trunc(delta));
+export function bumpAddress(bytes: Uint8Array, delta: number | bigint): number {
+  if (delta === 0 || delta === 0n) return bytes.length;
+  const deltaBig = typeof delta === 'bigint' ? delta : BigInt(Math.trunc(delta));
+  const negative = deltaBig < 0n;
+  let mag = negative ? -deltaBig : deltaBig;
   let i = bytes.length - 1;
 
   if (negative) {
-    let borrow = 0;
-    while (i >= 0 && (mag > 0 || borrow)) {
-      const sub = (mag % 256) + borrow;
-      let v = bytes[i] - sub;
-      if (v < 0) {
-        v += 256;
-        borrow = 1;
-      } else borrow = 0;
-      bytes[i] = v;
-      mag = Math.floor(mag / 256);
+    let borrow = 0n;
+    while (i >= 0 && (mag > 0n || borrow > 0n)) {
+      const sub = (mag & 0xffn) + borrow;
+      let v = BigInt(bytes[i]) - sub;
+      if (v < 0n) {
+        v += 256n;
+        borrow = 1n;
+      } else borrow = 0n;
+      bytes[i] = Number(v);
+      mag >>= 8n;
       i--;
     }
     return i + 1;
   } else {
-    let carry = 0;
-    while (i >= 0 && (mag > 0 || carry)) {
-      const add = (mag % 256) + carry;
-      let v = bytes[i] + add;
-      if (v > 255) {
-        v -= 256;
-        carry = 1;
-      } else carry = 0;
-      bytes[i] = v;
-      mag = Math.floor(mag / 256);
+    let carry = 0n;
+    while (i >= 0 && (mag > 0n || carry > 0n)) {
+      const add = (mag & 0xffn) + carry;
+      let v = BigInt(bytes[i]) + add;
+      if (v > 255n) {
+        v -= 256n;
+        carry = 1n;
+      } else carry = 0n;
+      bytes[i] = Number(v);
+      mag >>= 8n;
       i--;
     }
     return i + 1;
   }
 }
+
 
 // ---------------------------------------------------------------------------
 // Rendering an address for human eyes

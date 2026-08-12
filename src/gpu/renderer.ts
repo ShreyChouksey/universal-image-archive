@@ -361,26 +361,28 @@ async function createWebGPU(canvas: HTMLCanvasElement): Promise<Renderer | null>
       });
       device.queue.submit([encoder.finish()]);
 
-      await readback.mapAsync(GPUMapMode.READ);
-      const src = new Uint8Array(readback.getMappedRange());
-      // WebGPU render targets are top-down, so readback row r is image row r.
-      const out = new Uint8Array(PROBE * PROBE * 3);
-      for (let y = 0; y < PROBE; y++) {
-        for (let x = 0; x < PROBE; x++) {
-          const s = y * bytesPerRow + x * 4;
-          const d = (y * PROBE + x) * 3;
-          out[d] = src[s];
-          out[d + 1] = src[s + 1];
-          out[d + 2] = src[s + 2];
+      try {
+        await readback.mapAsync(GPUMapMode.READ);
+        const src = new Uint8Array(readback.getMappedRange());
+        // WebGPU render targets are top-down, so readback row r is image row r.
+        const out = new Uint8Array(PROBE * PROBE * 3);
+        for (let y = 0; y < PROBE; y++) {
+          for (let x = 0; x < PROBE; x++) {
+            const s = y * bytesPerRow + x * 4;
+            const d = (y * PROBE + x) * 3;
+            out[d] = src[s];
+            out[d + 1] = src[s + 1];
+            out[d + 2] = src[s + 2];
+          }
         }
+        readback.unmap();
+        return out;
+      } finally {
+        readback.destroy();
+        target.destroy();
+        // Restore the canvas-sized uniforms for the next real frame.
+        fillUniforms(scratchF32, scratchU32, input, FLAT_VIEW, viewW, viewH, isSphere(input));
       }
-      readback.unmap();
-      readback.destroy();
-      target.destroy();
-
-      // Restore the canvas-sized uniforms for the next real frame.
-      fillUniforms(scratchF32, scratchU32, input, FLAT_VIEW, viewW, viewH, isSphere(input));
-      return out;
     },
     dispose() {
       addressTexture.destroy();
@@ -550,7 +552,7 @@ function createWebGL2(canvas: HTMLCanvasElement): Renderer | null {
         view.pitch,
       );
       const patch = input.patch ?? null;
-      gl.uniform4ui(uniforms.patchInfo, patch ? patch.firstPixel : 0, patch ? patch.count : 0, 0, 0);
+      gl.uniform4ui(uniforms.patchInfo, patch ? patch.firstPixel : 0, patch ? patch.count : 0, input.rounds ?? 12, 0);
       if (patch) patchScratch.set(patch.values.subarray(0, PATCH_PIXELS * 4));
       else patchScratch.fill(0);
       gl.uniform4uiv(uniforms.patch, patchScratch);
@@ -580,7 +582,13 @@ function createWebGL2(canvas: HTMLCanvasElement): Renderer | null {
         ? { ...FLAT_VIEW, ...look }
         : { ...FLAT_VIEW, x: (at?.x ?? 0) + PROBE / 2, y: (at?.y ?? 0) + PROBE / 2, zoom: 1 };
       const probePatch = options?.withPatch ? (input.patch ?? null) : null;
-      gl.uniform4ui(uniforms.patchInfo, probePatch ? probePatch.firstPixel : 0, probePatch ? probePatch.count : 0, 0, 0);
+      gl.uniform4ui(
+        uniforms.patchInfo,
+        probePatch ? probePatch.firstPixel : 0,
+        probePatch ? probePatch.count : 0,
+        input.rounds ?? 12,
+        0,
+      );
       if (probePatch) patchScratch.set(probePatch.values.subarray(0, PATCH_PIXELS * 4));
       else patchScratch.fill(0);
       gl.uniform4uiv(uniforms.patch, patchScratch);

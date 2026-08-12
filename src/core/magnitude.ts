@@ -69,6 +69,8 @@ export function addressAnchors(digitCount: number): Anchor[] {
  * The point of the calculation is that the assumptions do not matter: make
  * them a thousand times more generous and the exponent barely moves.
  */
+import { superscript } from '../ui/numbers';
+
 export function archiveAnchors(cardinalityExponent: number): Anchor[] {
   const ATOMS_LOG10 = 80;
   const PER_SECOND_LOG10 = 9;
@@ -79,26 +81,13 @@ export function archiveAnchors(cardinalityExponent: number): Anchor[] {
   return [
     {
       label: 'Every atom in the universe, a billion images a second, since the Big Bang',
-      value: `10${superscriptOf(Math.round(producedLog10))} images`,
+      value: `10${superscript(Math.round(producedLog10))} images`,
     },
     {
       label: 'Fraction of the archive that would cover',
-      value: `10${superscriptOf(fractionExponent)}`,
+      value: `10${superscript(fractionExponent)}`,
     },
   ];
-}
-
-const SUPER: Record<string, string> = {
-  '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
-  '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹', ',': '˒', '-': '⁻',
-};
-
-function superscriptOf(n: number): string {
-  return n
-    .toLocaleString('en-US')
-    .split('')
-    .map((c) => SUPER[c] ?? c)
-    .join('');
 }
 
 /**
@@ -200,7 +189,7 @@ export function gridFunFacts(format: ArchiveFormat): FunFact[] {
   return [
     {
       title: 'Cosmic Scale vs. Universe',
-      fact: `Every atom in the observable universe (10⁸⁰) generating a billion images a second since the Big Bang (13.8B yrs) yields 10¹⁰⁷ images. This <strong class="fact-highlight">${format.resolution.label}</strong> grid holds <strong class="fact-highlight">10${superscriptOf(exp)}</strong> images — meaning all matter in time could only cover <strong class="fact-highlight">10${superscriptOf(fractionExponent)}%</strong> of this single archive.`,
+      fact: `Every atom in the observable universe (10⁸⁰) generating a billion images a second since the Big Bang (13.8B yrs) yields 10¹⁰⁷ images. This <strong class="fact-highlight">${format.resolution.label}</strong> grid holds <strong class="fact-highlight">10${superscript(exp)}</strong> images — meaning all matter in time could only cover <strong class="fact-highlight">10${superscript(fractionExponent)}%</strong> of this single archive.`,
     },
     {
       title: 'Solo Recitation Marathon',
@@ -216,11 +205,11 @@ export function gridFunFacts(format: ArchiveFormat): FunFact[] {
     },
     {
       title: 'Borges Omnipresence',
-      fact: `Because this <strong class="fact-highlight">${format.resolution.label}</strong> grid (<strong class="fact-highlight">10${superscriptOf(exp)}</strong> images) forms an exact mathematical bijection over all ${width} × ${height} ${format.depth.label} pixel matrices, every photo of you ever taken already exists at a precise coordinate in this grid.`,
+      fact: `Because this <strong class="fact-highlight">${format.resolution.label}</strong> grid (<strong class="fact-highlight">10${superscript(exp)}</strong> images) forms an exact mathematical bijection over all ${width} × ${height} ${format.depth.label} pixel matrices, every photo of you ever taken already exists at a precise coordinate in this grid.`,
     },
     {
       title: 'Generator Seed Sparsity',
-      fact: `The 128-bit generator seed accesses 2¹²⁸ (3.4 × 10³⁸) images. In this <strong class="fact-highlight">${format.resolution.label}</strong> grid of 10${superscriptOf(exp)} images, seeds can reach only <strong class="fact-highlight">1 in 10${superscriptOf(exp - 38)}</strong> possible image states — the rest exist exclusively via full byte addresses.`,
+      fact: `The 128-bit generator seed accesses 2¹²⁸ (3.4 × 10³⁸) images. In this <strong class="fact-highlight">${format.resolution.label}</strong> grid of 10${superscript(exp)} images, seeds can reach only <strong class="fact-highlight">1 in 10${superscript(exp - 38)}</strong> possible image states — the rest exist exclusively via full byte addresses.`,
     },
     {
       title: 'Quantum Nanometer Scale',

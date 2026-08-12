@@ -95,12 +95,13 @@ export class CarryEscaped extends Error {
  * outside it would have changed and painting them unchanged would be a
  * different picture wearing the right number.
  */
-export function applyOffsetToTail(bytes: Uint8Array, offset: number): void {
+export function applyOffsetToTail(bytes: Uint8Array, offset: number | bigint): void {
   const modulus = 1n << BigInt(bytes.length * 8);
   let value = 0n;
   for (const b of bytes) value = (value << 8n) | BigInt(b);
 
-  const moved = value + BigInt(Math.trunc(offset));
+  const delta = typeof offset === 'bigint' ? offset : BigInt(Math.trunc(offset));
+  const moved = value + delta;
   if (moved < 0n || moved >= modulus) throw new CarryEscaped();
 
   let v = moved;
@@ -139,9 +140,9 @@ export function patchByteCount(format: ArchiveFormat): number {
 export function tailPatchFromBytes(
   format: ArchiveFormat,
   baseTail: Uint8Array,
-  offset: number,
+  offset: number | bigint,
 ): TailPatch | null {
-  if (offset === 0) return null;
+  if (offset === 0 || offset === 0n) return null;
   const bpp = format.depth.bytesPerPixel;
   const count = Math.floor(baseTail.length / bpp);
   const bytes = baseTail.slice(0, count * bpp);
@@ -149,8 +150,8 @@ export function tailPatchFromBytes(
   return packTailPatch(bytes, bpp, pixelCount(format) - count);
 }
 
-export function tailPatch(format: ArchiveFormat, seed: Seed, offset: number, rounds = 12): TailPatch | null {
-  if (offset === 0) return null;
+export function tailPatch(format: ArchiveFormat, seed: Seed, offset: number | bigint, rounds = 12): TailPatch | null {
+  if (offset === 0 || offset === 0n) return null;
   const total = pixelCount(format);
   const count = Math.min(PATCH_PIXELS, total);
   const bytes = tailBytes(format, seed, total - count, count, rounds);
@@ -167,7 +168,7 @@ export function tailPatch(format: ArchiveFormat, seed: Seed, offset: number, rou
 export function sampleAt(
   format: ArchiveFormat,
   seed: Seed,
-  offset: number,
+  offset: number | bigint,
   pixelIndex: number,
   patch: TailPatch | null,
   rounds = 12,
@@ -214,7 +215,7 @@ export function seedHeadBytes(format: ArchiveFormat, seed: Seed, count: number, 
 export function seedTailBytes(
   format: ArchiveFormat,
   seed: Seed,
-  offset: number,
+  offset: number | bigint,
   count: number,
   rounds = 12,
 ): Uint8Array {
@@ -223,6 +224,6 @@ export function seedTailBytes(
   const pixels = Math.min(total, Math.ceil(count / bpp));
   const first = total - pixels;
   const bytes = tailBytes(format, seed, first, pixels, rounds);
-  if (offset !== 0) applyOffsetToTail(bytes, offset);
+  if (offset !== 0 && offset !== 0n) applyOffsetToTail(bytes, offset);
   return bytes.subarray(Math.max(0, bytes.length - count));
 }

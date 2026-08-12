@@ -30,8 +30,7 @@ export interface StageHooks {
   onEntropyMotion?(dx: number, dy: number, dt: number): void;
 }
 
-const MIN_ZOOM_FACTOR = 0.9; // relative to fit
-const MAX_ZOOM = 48;
+const MIN_ZOOM_FACTOR = 0.5; // relative to fit
 
 export class Stage {
   readonly view: ViewState = { x: 0, y: 0, zoom: 1, yaw: 0, pitch: 0, fov: DEFAULT_FOV };
@@ -42,11 +41,30 @@ export class Stage {
   #hooks: StageHooks;
   #viewportW = 1;
   #viewportH = 1;
+
+  get viewportW(): number {
+    return this.#viewportW;
+  }
+
+  get viewportH(): number {
+    return this.#viewportH;
+  }
+
+  /**
+   * Maximum allowed zoom level. Calculated dynamically so small grids (e.g. 8x8, 16x16)
+   * whose fitZoom exceeds 48 are never forcibly zoomed out on user interaction.
+   */
+  get maxZoom(): number {
+    return Math.max(512, this.fitZoom * 32);
+  }
   #dpr = 1;
   #dragging = false;
   #lastPointer: { x: number; y: number } | null = null;
   #cursor: { x: number; y: number } | null = null;
   #loupeVisible = false;
+  #loupePos: { x: number; y: number } | null = null;
+  #loupeDragging = false;
+  #loupeDragOffset = { x: 0, y: 0 };
 
   #elLoupe: HTMLElement;
   #elSwatch: HTMLElement;
@@ -81,6 +99,43 @@ export class Stage {
     this.#elZoom = byId('zoomReadout');
     this.#elCursor = byId('cursorReadout');
 
+    // Setup draggable loupe inspector panel
+    const header = document.getElementById('loupeHeader') || this.#elLoupe;
+    header.addEventListener('pointerdown', (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      e.stopPropagation();
+      this.#loupeDragging = true;
+      this.#elLoupe.dataset.dragging = 'true';
+      const rect = this.#elLoupe.getBoundingClientRect();
+      this.#loupeDragOffset = {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top,
+      };
+      this.#elLoupe.setPointerCapture(e.pointerId);
+    });
+
+    this.#elLoupe.addEventListener('pointermove', (e: PointerEvent) => {
+      if (!this.#loupeDragging) return;
+      e.stopPropagation();
+      const stageRect = root.getBoundingClientRect();
+      const rawX = e.clientX - stageRect.left - this.#loupeDragOffset.x;
+      const rawY = e.clientY - stageRect.top - this.#loupeDragOffset.y;
+      this.#loupePos = { x: rawX, y: rawY };
+      this.clampLoupe();
+    });
+
+    const endLoupeDrag = (e: PointerEvent) => {
+      if (!this.#loupeDragging) return;
+      e.stopPropagation();
+      this.#loupeDragging = false;
+      delete this.#elLoupe.dataset.dragging;
+      try {
+        this.#elLoupe.releasePointerCapture(e.pointerId);
+      } catch {}
+    };
+    this.#elLoupe.addEventListener('pointerup', endLoupeDrag);
+    this.#elLoupe.addEventListener('pointercancel', endLoupeDrag);
+
     // Measure once synchronously: the observer's first callback does not arrive
     // until after a frame, and anything that fits the grid before then would be
     // fitting it to a 1x1 viewport.
@@ -97,7 +152,7 @@ export class Stage {
 
     root.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
-      if ((e.target as HTMLElement).closest('button, select, input, .parked')) return;
+      if ((e.target as HTMLElement).closest('button, select, input, .parked, .loupe')) return;
       this.#dragging = true;
       this.#lastPointer = { x: e.clientX, y: e.clientY };
       root.setPointerCapture(e.pointerId);
@@ -163,8 +218,6 @@ export class Stage {
         const px = (e.clientX - rect.left) * this.#dpr;
         const py = (e.clientY - rect.top) * this.#dpr;
         this.zoomAt(px, py, Math.exp(-e.deltaY * 0.0015));
-        void px;
-        void py;
       },
       { passive: false },
     );
@@ -216,6 +269,7 @@ export class Stage {
       this.#hooks.onViewChange();
       this.updateReadouts();
     }
+    this.clampLoupe();
   }
 
   get #sphere(): boolean {
@@ -289,7 +343,7 @@ export class Stage {
     }
 
     const min = this.fitZoom * MIN_ZOOM_FACTOR;
-    const next = Math.min(MAX_ZOOM, Math.max(min, this.view.zoom * factor));
+    const next = Math.min(this.maxZoom, Math.max(min, this.view.zoom * factor));
     if (next === this.view.zoom) return;
 
     // Keep the image point under the cursor fixed across the zoom.
@@ -320,7 +374,7 @@ export class Stage {
       this.view.fov = Math.max(MIN_FOV, Math.min(MAX_FOV, (Math.PI * this.#viewportH) / height / magnification));
       this.#clampLook();
     } else {
-      this.view.zoom = Math.min(MAX_ZOOM, Math.max(this.fitZoom, magnification));
+      this.view.zoom = Math.min(this.maxZoom, Math.max(this.fitZoom, magnification));
       this.view.x = x + 0.5;
       this.view.y = y + 0.5;
       this.#clamp();
@@ -333,16 +387,68 @@ export class Stage {
     const { width, height } = this.#format.resolution;
     const halfW = this.#viewportW / this.view.zoom / 2;
     const halfH = this.#viewportH / this.view.zoom / 2;
-    // When the image is smaller than the viewport on an axis, pin it centred.
-    this.view.x = halfW * 2 >= width ? width / 2 : Math.min(width - halfW, Math.max(halfW, this.view.x));
-    this.view.y = halfH * 2 >= height ? height / 2 : Math.min(height - halfH, Math.max(halfH, this.view.y));
+
+    // Panning slack: allow panning past image edges when zoomed in (up to 40% of viewport in texels)
+    const slackW = Math.min(width * 0.4, Math.max(32 / this.view.zoom, (this.#viewportW / this.view.zoom) * 0.4));
+    const slackH = Math.min(height * 0.4, Math.max(32 / this.view.zoom, (this.#viewportH / this.view.zoom) * 0.4));
+
+    if (halfW * 2 >= width) {
+      this.view.x = width / 2;
+    } else {
+      const minX = halfW - slackW;
+      const maxX = width - halfW + slackW;
+      this.view.x = Math.min(maxX, Math.max(minX, this.view.x));
+    }
+
+    if (halfH * 2 >= height) {
+      this.view.y = height / 2;
+    } else {
+      const minY = halfH - slackH;
+      const maxY = height - halfH + slackH;
+      this.view.y = Math.min(maxY, Math.max(minY, this.view.y));
+    }
   }
 
   toggleLoupe(force?: boolean): boolean {
     this.#loupeVisible = force ?? !this.#loupeVisible;
     this.#elLoupe.hidden = !this.#loupeVisible;
+    if (this.#loupeVisible) this.clampLoupe();
     this.updateReadouts();
     return this.#loupeVisible;
+  }
+
+  clampLoupe(): void {
+    if (!this.#elLoupe || this.#elLoupe.hidden) return;
+    const stageEl = this.#canvas.parentElement;
+    if (!stageEl) return;
+    const stageRect = stageEl.getBoundingClientRect();
+    const loupeRect = this.#elLoupe.getBoundingClientRect();
+    if (stageRect.width <= 0 || stageRect.height <= 0) return;
+
+    // Safety margin in CSS pixels inside stage container
+    const margin = 20;
+    const drawerOpen = document.body.dataset.drawerOpen === 'true' && window.innerWidth >= 901;
+    const drawerWidth = drawerOpen ? 380 : 0;
+
+    const loupeW = Math.max(120, loupeRect.width || this.#elLoupe.offsetWidth);
+    const loupeH = Math.max(80, loupeRect.height || this.#elLoupe.offsetHeight);
+
+    const minX = margin;
+    const maxX = Math.max(minX, stageRect.width - loupeW - drawerWidth - margin);
+    const minY = margin;
+    const maxY = Math.max(minY, stageRect.height - loupeH - margin);
+
+    if (!this.#loupePos) {
+      this.#loupePos = { x: maxX, y: maxY };
+    }
+
+    const clampedX = Math.max(minX, Math.min(maxX, this.#loupePos.x));
+    const clampedY = Math.max(minY, Math.min(maxY, this.#loupePos.y));
+
+    this.#elLoupe.style.left = `${Math.round(clampedX)}px`;
+    this.#elLoupe.style.top = `${Math.round(clampedY)}px`;
+    this.#elLoupe.style.right = 'auto';
+    this.#elLoupe.style.bottom = 'auto';
   }
 
   /** Image texel under the cursor, or null. */
@@ -375,10 +481,9 @@ export class Stage {
       this.#elCursor.textContent = `${yaw.toFixed(0)}° ${pitch >= 0 ? '+' : ''}${pitch.toFixed(0)}°`;
     } else {
       const ratio = this.view.zoom / this.#dpr;
-      this.#elZoom.textContent =
-        Math.abs(this.view.zoom - this.fitZoom) < 1e-6
-          ? `fit · ${(ratio * 100).toFixed(0)}%`
-          : `${ratio >= 1 ? ratio.toFixed(ratio < 10 ? 1 : 0) + '×' : (ratio * 100).toFixed(0) + '%'}`;
+      this.#elZoom.textContent = this.#atFit
+        ? `fit · ${(ratio * 100).toFixed(0)}%`
+        : `${ratio >= 1 ? ratio.toFixed(ratio < 10 ? 1 : 0) + '×' : (ratio * 100).toFixed(0) + '%'}`;
       const at = this.pixelUnderCursor();
       this.#elCursor.textContent = at ? `${at.x}, ${at.y}` : '—';
     }
@@ -392,6 +497,7 @@ export class Stage {
       this.#elR.textContent = this.#elG.textContent = this.#elB.textContent = '—';
       this.#elOffset.textContent = '—';
       this.#elSwatch.style.background = '#000';
+      this.clampLoupe();
       return;
     }
 
@@ -406,5 +512,6 @@ export class Stage {
 
     const index = pixel.y * this.#format.resolution.width + pixel.x;
     this.#elOffset.textContent = (index * this.#format.depth.bytesPerPixel).toLocaleString('en-US');
+    this.clampLoupe();
   }
 }

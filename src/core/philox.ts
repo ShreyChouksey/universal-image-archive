@@ -144,39 +144,25 @@ export function seedFromHex(hex: string): Seed | null {
 }
 
 /** seed + delta, as a 128-bit big-endian integer, wrapping at the ends. */
-export function seedAdd(seed: Seed, delta: number): Seed {
+export function seedAdd(seed: Seed, delta: number | bigint): Seed {
   const out = new Uint32Array(4) as Seed;
-  out.set(seed);
-  if (delta === 0) return out;
-
-  const negative = delta < 0;
-  let mag = Math.abs(Math.trunc(delta));
-  const limbs: number[] = []; // least significant first
-  while (mag > 0) {
-    limbs.push(mag % 0x100000000);
-    mag = Math.floor(mag / 0x100000000);
+  if (delta === 0 || delta === 0n) {
+    out.set(seed);
+    return out;
   }
-
-  let borrowOrCarry = 0;
-  for (let k = 0; k < 4; k++) {
-    const i = 3 - k; // words are big-endian
-    const operand = (limbs[k] ?? 0) + borrowOrCarry;
-    if (negative) {
-      let v = out[i] - operand;
-      if (v < 0) {
-        v += 0x100000000;
-        borrowOrCarry = 1;
-      } else borrowOrCarry = 0;
-      out[i] = v >>> 0;
-    } else {
-      let v = out[i] + operand;
-      if (v > 0xffffffff) {
-        v -= 0x100000000;
-        borrowOrCarry = 1;
-      } else borrowOrCarry = 0;
-      out[i] = v >>> 0;
-    }
-  }
+  const seedVal =
+    (BigInt(seed[0]) << 96n) |
+    (BigInt(seed[1]) << 64n) |
+    (BigInt(seed[2]) << 32n) |
+    BigInt(seed[3]);
+  const MOD = 1n << 128n;
+  const deltaVal = BigInt(typeof delta === 'number' ? Math.trunc(delta) : delta);
+  let res = (seedVal + deltaVal) % MOD;
+  if (res < 0n) res += MOD;
+  out[0] = Number((res >> 96n) & 0xffffffffn) >>> 0;
+  out[1] = Number((res >> 64n) & 0xffffffffn) >>> 0;
+  out[2] = Number((res >> 32n) & 0xffffffffn) >>> 0;
+  out[3] = Number(res & 0xffffffffn) >>> 0;
   return out;
 }
 

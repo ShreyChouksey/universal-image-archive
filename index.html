@@ -4,11 +4,38 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#151311" />
     <title>Universal Image Archive</title>
     <meta
       name="description"
-      content="Every possible 4K image at 48-bit colour depth, addressable and reachable."
+      content="Every possible image at 48-bit colour depth, addressable and reachable via total mathematical bijection."
     />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Universal Image Archive" />
+    <meta property="og:title" content="Universal Image Archive — Every Image Addressable & Reachable" />
+    <meta
+      property="og:description"
+      content="A total mathematical bijection over all 281.5 trillion color pixel matrices. Procedural Philox PRNG, 48-bit depth, and decimal address verification."
+    />
+    <meta property="og:url" content="https://shreychouksey.github.io/universal-image-archive/" />
+    <meta property="og:image" content="https://shreychouksey.github.io/universal-image-archive/favicon.svg" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Universal Image Archive — Every Image Addressable & Reachable" />
+    <meta
+      name="twitter:description"
+      content="Every possible image at 48-bit colour depth, addressable and reachable via total mathematical bijection."
+    />
+    <meta name="twitter:image" content="https://shreychouksey.github.io/universal-image-archive/favicon.svg" />
+
     <link rel="stylesheet" href="/src/styles/app.css" />
   </head>
   <body>
@@ -31,6 +58,7 @@
         </button>
 
         <nav class="rail__nav">
+          <button class="ghost rail__share" id="shareLink" type="button" title="Copy exact permalink URL to clipboard (Alt+C)">Share</button>
           <button class="tab" type="button" data-drawer="search">Search</button>
           <button class="tab" type="button" data-drawer="address">Address</button>
           <button class="tab" type="button" data-drawer="plate">Plate</button>
@@ -56,12 +84,18 @@
         </div>
 
         <div class="loupe" id="loupe" hidden>
-          <div class="loupe__swatch" id="loupeSwatch"></div>
-          <dl class="loupe__values">
-            <div><dt data-ch="r">R</dt><dd id="loupeR">—</dd></div>
-            <div><dt data-ch="g">G</dt><dd id="loupeG">—</dd></div>
-            <div><dt data-ch="b">B</dt><dd id="loupeB">—</dd></div>
-          </dl>
+          <div class="loupe__header" id="loupeHeader" title="Drag inspector panel">
+            <span class="loupe__grip">⠿</span>
+            <span class="loupe__title">Inspector</span>
+          </div>
+          <div class="loupe__body">
+            <div class="loupe__swatch" id="loupeSwatch"></div>
+            <dl class="loupe__values">
+              <div><dt data-ch="r">R</dt><dd id="loupeR">—</dd></div>
+              <div><dt data-ch="g">G</dt><dd id="loupeG">—</dd></div>
+              <div><dt data-ch="b">B</dt><dd id="loupeB">—</dd></div>
+            </dl>
+          </div>
           <p class="loupe__offset">
             byte <span id="loupeOffset">—</span> of <span id="loupeTotal">—</span>
           </p>
@@ -352,6 +386,11 @@
           and the number are the same object, so the picture can be solved for.
         </p>
 
+        <div class="plate-warning" id="plateFormatWarning" hidden>
+          <span class="plate-warning__text">⚠️ Plates require 4K UHD grid (3840×2160) at 48-bit depth.</span>
+          <button class="primary plate-warning__btn" type="button" id="plateAutoSetFormat">Set Format to 4K UHD 48-Bit</button>
+        </div>
+
         <div class="field">
           <label class="label" for="plateGround">Ground</label>
           <input
@@ -367,7 +406,13 @@
         </div>
 
         <div class="field">
-          <label class="label" for="plateStatement">Statement</label>
+          <div class="field__head">
+            <label class="label" for="plateStatement">Statement</label>
+            <div class="field__presets">
+              <button class="ghost" type="button" id="platePresetToday" title="Use current timestamp date">Today</button>
+              <button class="ghost" type="button" id="platePresetRandom" title="Generate 15 random digits">Random 15</button>
+            </div>
+          </div>
           <input
             class="entry__seed"
             id="plateStatement"
@@ -401,21 +446,23 @@
             <tr><td><kbd>R</kbd></td><td>Jump to a random coordinate</td></tr>
             <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Previous / next coordinate</td></tr>
             <tr><td><kbd>[</kbd> <kbd>]</kbd></td><td>Neighbouring address, ∓1</td></tr>
+            <tr><td><kbd>Alt</kbd> + <kbd>A</kbd> / <kbd>S</kbd></td><td>Step Head digit, ∓100</td></tr>
+            <tr><td><kbd>Alt</kbd> + <kbd>D</kbd> / <kbd>F</kbd></td><td>Step Tail digit, ∓100</td></tr>
+            <tr><td><kbd>Alt</kbd> + <kbd>C</kbd></td><td>Copy permalink URL</td></tr>
             <tr><td><kbd>Space</kbd></td><td>Start or stop traversing</td></tr>
-            <tr><td><kbd>F</kbd></td><td>Fit the grid, or face forward on a sphere</td></tr>
-            <tr><td><kbd>1</kbd></td><td>View at 1:1</td></tr>
+            <tr><td><kbd>F</kbd></td><td>Fit grid, or reset sphere view</td></tr>
+            <tr><td><kbd>1</kbd></td><td>View at 1:1 scale</td></tr>
             <tr><td><kbd>G</kbd></td><td>Switch between plane and sphere</td></tr>
             <tr><td><kbd>I</kbd></td><td>Toggle the pixel loupe</td></tr>
-            <tr><td><kbd>S</kbd></td><td>Open search</td></tr>
-            <tr><td><kbd>A</kbd></td><td>Read the address itself</td></tr>
-            <tr><td><kbd>P</kbd></td><td>Construct a plate</td></tr>
-            <tr><td><kbd>E</kbd></td><td>Export a PNG at full depth</td></tr>
-            <tr><td><kbd>Esc</kbd></td><td>Close this panel</td></tr>
+            <tr><td><kbd>S</kbd></td><td>Open search drawer</td></tr>
+            <tr><td><kbd>A</kbd></td><td>Read address panel</td></tr>
+            <tr><td><kbd>P</kbd></td><td>Construct a provenance plate</td></tr>
+            <tr><td><kbd>E</kbd></td><td>Export PNG at full depth</td></tr>
+            <tr><td><kbd>Esc</kbd></td><td>Close drawer or blur input</td></tr>
           </tbody>
         </table>
         <p class="prose">
-          Scroll to zoom, drag to pan. The loupe reports the exact channel values under the cursor
-          and the byte those values occupy in the address.
+          Scroll to zoom, drag to pan. Drag the inspector header to move the pixel loupe anywhere. The loupe reports exact channel values under the cursor and its byte position in the address.
         </p>
       </section>
 

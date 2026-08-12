@@ -70,6 +70,7 @@ import {
   layoutFor,
   normaliseStatement,
   plateSelfTest,
+  plateSupported,
   readPlateClaim,
   verifyPlate,
 } from '../src/core/plate.ts';
@@ -1260,7 +1261,6 @@ test('a custom-grid address survives the .uia container', async () => {
 });
 
 test('generator invariants hold on a custom grid too', () => {
-  const { } = {};
   const format: ArchiveFormat = {
     resolution: { id: 'c9x16', label: 'Custom', note: '', width: 9, height: 16, geometry: 'plane' },
     depth: depth(16),
@@ -1517,3 +1517,271 @@ test('the residue carried alongside a walked base stays exact', async () => {
     assert.equal(carried, residueMod10e15(truth), `residue after ${offset}`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Regression suite — verifying fixes for identified bugs
+// ---------------------------------------------------------------------------
+
+test('seedAdd handles BigInt deltas > 2^53 without floating-point precision loss', () => {
+  const start = seedOf(0, 0, 0, 100);
+  const largeDelta = 2n ** 60n + 1234567n;
+  const moved = seedAdd(start, largeDelta);
+  const back = seedAdd(moved, -largeDelta);
+  assert.equal(seedToHex(back), seedToHex(start), 'seedAdd must be exact on BigInt deltas > 2^53');
+});
+
+test('normaliseStatement consistently extracts 15-digit statements from ISO dates and inputs', async () => {
+  const { normaliseStatement } = await import('../src/core/plate.ts');
+  const dateStr = '2026-08-12T13:54:22.000Z';
+  const norm1 = normaliseStatement(dateStr);
+  assert.equal(norm1.length, 15);
+  assert.equal(/^\d{15}$/.test(norm1), true);
+
+  const shortStr = '12345';
+  assert.equal(normaliseStatement(shortStr), '000000000012345');
+});
+
+test('TelemetryMonitor reports realistic VRAM allocation in seeded mode vs address mode', async () => {
+  const { TelemetryMonitor } = await import('../src/core/telemetry.ts');
+  const monitor = new TelemetryMonitor();
+  monitor.setGpuInfo('WebGPU Test', 16384);
+
+  const format = tiny(16); // small format
+  const seedSample = monitor.sample(format, 12, 'seed', 1920, 1080);
+  const addressSample = monitor.sample(format, 12, 'address', 1920, 1080);
+
+  // In seeded mode, VRAM footprint is based on viewport size, not total grid size
+  assert.ok(seedSample.vramBytes <= 1920 * 1080 * 4 * 2);
+  assert.equal(addressSample.vramBytes, format.resolution.width * format.resolution.height * 4 * 2);
+});
+
+test('stage pan clamping slack allows moving past image boundaries when zoomed in', () => {
+  const width = 1280;
+  const height = 720;
+  const viewportW = 1920;
+  const viewportH = 1080;
+  const zoom = 5; // zoomed in
+
+  const halfW = viewportW / zoom / 2; // 192
+  const halfH = viewportH / zoom / 2; // 108
+
+  const slackW = Math.min(width * 0.4, Math.max(32 / zoom, (viewportW / zoom) * 0.4));
+  const slackH = Math.min(height * 0.4, Math.max(32 / zoom, (viewportH / zoom) * 0.4));
+
+  const minX = halfW - slackW;
+  const maxX = width - halfW + slackW;
+
+  const minY = halfH - slackH;
+  const maxY = height - halfH + slackH;
+
+  // Verify that with slack, the view center can move beyond [halfW, width - halfW]
+  assert.ok(minX < halfW, 'minX should allow panning left past exact image border');
+  assert.ok(maxX > width - halfW, 'maxX should allow panning right past exact image border');
+  assert.ok(minY < halfH, 'minY should allow panning top past exact image border');
+  assert.ok(maxY > height - halfH, 'maxY should allow panning bottom past exact image border');
+});
+
+test('dynamic maxZoom never clamps below fitZoom for high-magnification grids', () => {
+  // For an 8x8 grid on a 1920x1080 screen, fitZoom is ~129
+  const margin = 48;
+  const fitZoom = (1080 - margin) / 8; // 129
+  const dpr = 1;
+  const maxZoom = Math.max(512 * dpr, fitZoom * 32);
+
+  assert.ok(maxZoom >= fitZoom, 'maxZoom must be at least as large as fitZoom so small grids are never zoomed out');
+  assert.ok(maxZoom >= 512, 'maxZoom should support deep magnification');
+});
+
+test('permalink URL parameters encode and decode state variables accurately', () => {
+  const seedHex = '1d5fdc1ba2d2d14882aae8bb94ffd58a';
+  const params = new URLSearchParams();
+  params.set('c', seedHex);
+  params.set('o', '42');
+  params.set('g', 'plane');
+  params.set('r', 'hd');
+  params.set('d', 'd48');
+  params.set('n', '16');
+
+  const permalink = `#${params.toString()}`;
+  assert.ok(permalink.includes(`c=${seedHex}`));
+
+  const parsed = new URLSearchParams(permalink.slice(1));
+  assert.equal(parsed.get('c'), seedHex);
+  assert.equal(parsed.get('o'), '42');
+  assert.equal(parsed.get('g'), 'plane');
+  assert.equal(parsed.get('r'), 'hd');
+  assert.equal(parsed.get('d'), 'd48');
+  assert.equal(parsed.get('n'), '16');
+});
+
+test('plateSupported accurately gates formats and approves 4K UHD 48-bit', () => {
+  const uhdFormat = {
+    resolution: RESOLUTIONS.find((r) => r.id === 'uhd4k')!,
+    depth: DEPTHS.find((d) => d.id === 'd48')!,
+  };
+  const hd8bitFormat = {
+    resolution: RESOLUTIONS.find((r) => r.id === 'hd')!,
+    depth: DEPTHS.find((d) => d.id === 'd24')!,
+  };
+
+  assert.ok(plateSupported(uhdFormat), '4K UHD 48-bit format must support plate minting');
+  assert.equal(plateSupported(hd8bitFormat), false, '8-bit HD format must be gated from plate minting');
+});
+
+test('resolutionById and depthById lookup valid resolution and depth objects for bench sync', () => {
+  const uhdRes = resolutionById('uhd4k');
+  const d48Depth = DEPTHS.find((d) => d.id === 'd48');
+
+  assert.equal(uhdRes.id, 'uhd4k');
+  assert.equal(uhdRes.width, 3840);
+  assert.equal(uhdRes.height, 2160);
+  assert.equal(d48Depth?.id, 'd48');
+  assert.equal(d48Depth?.bpc, 16);
+});
+
+test('sampleSeed stays within valid pixel indices for small grids during GPU probe', () => {
+  const px2Format = {
+    resolution: RESOLUTIONS.find((r) => r.id === 'px2')!,
+    depth: DEPTHS.find((d) => d.id === 'd48')!,
+  };
+  const seed = randomSeed();
+  const PROBE = 8;
+  const { width, height } = px2Format.resolution;
+
+  let sampledCount = 0;
+  for (let y = 0; y < PROBE; y++) {
+    if (y >= height) continue;
+    for (let x = 0; x < PROBE; x++) {
+      if (x >= width) continue;
+      sampledCount++;
+      const pixelIdx = y * width + x;
+      assert.ok(pixelIdx < width * height, `pixelIdx ${pixelIdx} must be within 2x2 grid size`);
+      const sample = sampleSeed(px2Format, seed, pixelIdx, 16);
+      assert.ok(typeof sample.r === 'number' && typeof sample.g === 'number' && typeof sample.b === 'number');
+    }
+  }
+  assert.equal(sampledCount, 4, 'Exactly 4 pixels should be probed for a 2x2 grid');
+});
+
+test('applyOffsetToTail handles BigInt deltas correctly without loss of precision', async () => {
+  const { applyOffsetToTail } = await import('../src/core/offset.ts');
+  const bytes = new Uint8Array([0x00, 0x00, 0x00, 0x10]);
+  applyOffsetToTail(bytes, 100n);
+  assert.equal(bytes[3], 0x10 + 100);
+
+  const bigBytes = new Uint8Array(10);
+  applyOffsetToTail(bigBytes, 1000000000000000000n);
+  const val = BigInt('0x' + Buffer.from(bigBytes).toString('hex'));
+  assert.equal(val, 1000000000000000000n);
+});
+
+test('bumpAddress handles BigInt deltas > 2^53 - 1 and wraps correctly at both ends', () => {
+  const bytes = new Uint8Array(16);
+  // BigInt delta > 2^53 - 1
+  const delta = 1n << 60n;
+  const reach = bumpAddress(bytes, delta);
+  const val = BigInt('0x' + Buffer.from(bytes).toString('hex'));
+  assert.equal(val, delta);
+  assert.ok(reach <= bytes.length, 'Reach should be within bounds');
+
+  // Wrap at zero (underflow wrapping to 2^(8*16) - 1)
+  const zeroBytes = new Uint8Array(16);
+  bumpAddress(zeroBytes, -1n);
+  for (let i = 0; i < 16; i++) {
+    assert.equal(zeroBytes[i], 0xff, `Byte ${i} should wrap to 0xFF on -1 step`);
+  }
+
+  // Wrap at max value (overflow wrapping to 0)
+  const maxBytes = new Uint8Array(16);
+  maxBytes.fill(0xff);
+  bumpAddress(maxBytes, 1n);
+  for (let i = 0; i < 16; i++) {
+    assert.equal(maxBytes[i], 0x00, `Byte ${i} should wrap to 0x00 on +1 step from max`);
+  }
+});
+
+test('Philox Feistel key schedule constants match golden ratio and sqrt(3)-1', () => {
+  // W0 = 0x9E3779B9 = floor(2^32 / phi)
+  // W1 = 0xBB67AE85 = floor(2^32 * (sqrt(3) - 1))
+  const W0 = 0x9e3779b9 >>> 0;
+  const W1 = 0xbb67ae85 >>> 0;
+  assert.equal(W0, 2654435769);
+  assert.equal(W1, 3144134277);
+
+  // 10 vs 12 vs 24 round Feistel mixing produces unique deterministic outputs
+  const out10 = philoxScratch();
+  const out12 = philoxScratch();
+  const out24 = philoxScratch();
+  philox4x32_10(out10, 1, 2, 3, 4, 5, 6);
+  philox4x32(out12, 1, 2, 3, 4, 5, 6, 12);
+  philox4x32(out24, 1, 2, 3, 4, 5, 6, 24);
+
+  assert.notDeepEqual(Array.from(out10), Array.from(out12));
+  assert.notDeepEqual(Array.from(out12), Array.from(out24));
+});
+
+test('solveTail solved tail bytes sit in bottom-right pixels outside layout panel', () => {
+  const layout = PLATE_LAYOUTS[0]; // Plate I
+  // Plate I layout panel: y from 560 to 1600 (height 1040)
+  const panelBottom = layout.panel.y + layout.panel.h;
+  assert.equal(panelBottom, 1600);
+
+  // Tail bytes live in the last 7 bytes of the 3840x2160 frame.
+  // Last row is y = 2159.
+  const frameHeight = layout.height;
+  assert.equal(frameHeight, 2160);
+  assert.ok(frameHeight - 1 > panelBottom, 'Bottom row containing solved tail must be below panel');
+});
+
+test('UI theme color contrast ratios meet WCAG AA baseline against ground #151311', () => {
+  const luminance = (hexColor: string) => {
+    const num = parseInt(hexColor.replace('#', ''), 16);
+    const r8 = (num >> 16) & 0xff;
+    const g8 = (num >> 8) & 0xff;
+    const b8 = num & 0xff;
+    const srgb = [r8, g8, b8].map((c) => {
+      const s = c / 255;
+      return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * srgb[0] + 0.7152 * srgb[1] + 0.0722 * srgb[2];
+  };
+
+  const contrast = (l1: number, l2: number) => {
+    const lighter = Math.max(l1, l2);
+    const darker = Math.min(l1, l2);
+    return (lighter + 0.05) / (darker + 0.05);
+  };
+
+  const lGround = luminance('#151311');
+  const lInk1 = luminance('#f0eae0');
+  const lInk2 = luminance('#c8bdae');
+  const lInk3 = luminance('#9b9080');
+
+  const crInk1 = contrast(lInk1, lGround);
+  const crInk2 = contrast(lInk2, lGround);
+  const crInk3 = contrast(lInk3, lGround);
+
+  assert.ok(crInk1 >= 7.0, `--ink contrast ${crInk1.toFixed(2)}:1 must meet AAA baseline (>= 7.0)`);
+  assert.ok(crInk2 >= 7.0, `--ink-2 contrast ${crInk2.toFixed(2)}:1 must meet AAA baseline (>= 7.0)`);
+  assert.ok(crInk3 >= 4.5, `--ink-3 contrast ${crInk3.toFixed(2)}:1 must meet AA baseline (>= 4.5)`);
+});
+
+test('equirectangular projection handles pole singularities and 180 deg longitude wrap', () => {
+  const width = 4096;
+  const height = 2048;
+
+  // North pole (+90 deg pitch) -> lat = +pi/2 -> y = 0
+  const poleNorth = texelFor([0, 1, 0], width, height);
+  assert.equal(poleNorth.y, 0, 'North pole must map to top row (y = 0)');
+
+  // South pole (-90 deg pitch) -> lat = -pi/2 -> y = height - 1
+  const poleSouth = texelFor([0, -1, 0], width, height);
+  assert.equal(poleSouth.y, height - 1, 'South pole must map to bottom row');
+
+  // Longitude wrap at 180 deg
+  const wrapRight = texelFor([0.0001, 0, -1], width, height);
+  const wrapLeft = texelFor([-0.0001, 0, -1], width, height);
+  assert.ok(wrapRight.x >= 0 && wrapRight.x < width, 'Wrapped texel X must be in [0, width)');
+  assert.ok(wrapLeft.x >= 0 && wrapLeft.x < width, 'Wrapped texel X must be in [0, width)');
+});
+

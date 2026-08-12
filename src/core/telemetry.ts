@@ -8,6 +8,8 @@
 
 import type { ArchiveFormat } from './format';
 
+import { bytesHuman } from '../ui/numbers';
+
 export interface WarningDetails {
   title: string;
   frozen: string[];
@@ -60,7 +62,13 @@ export class TelemetryMonitor {
     }
   }
 
-  sample(format: ArchiveFormat, _rounds: number): TelemetrySample {
+  sample(
+    format: ArchiveFormat,
+    _rounds: number,
+    mode: 'seed' | 'address' = 'seed',
+    viewportW = 1920,
+    viewportH = 1080,
+  ): TelemetrySample {
     const now = performance.now();
     if (now - this.#lastFrameTimestamp > 1500) {
       this.#currentFps = 60;
@@ -71,9 +79,10 @@ export class TelemetryMonitor {
     const bpc = format.depth.bpc;
     const channels = 4; // RGBA
 
-    // VRAM estimate: texture dimensions * channels * bytes per channel
+    // VRAM estimate: in address mode, full grid texture is loaded; in seed mode, only canvas size
     const bytesPerChannel = bpc > 8 ? 2 : 1;
-    const vramBytes = pixels * channels * bytesPerChannel;
+    const vramPixels = mode === 'address' ? pixels : Math.max(1, viewportW * viewportH);
+    const vramBytes = vramPixels * channels * bytesPerChannel;
 
     const exceedsHardwareLimit = width > this.#maxTextureDimension || height > this.#maxTextureDimension;
 
@@ -109,17 +118,17 @@ export class TelemetryMonitor {
       };
     } else if (vramBytes > 2 * 1024 * 1024 * 1024) {
       hardwareToll = 'extreme';
-      tollWarning = `Extreme memory toll (${formatBytes(vramBytes)} per frame).`;
+      tollWarning = `Extreme memory toll (${bytesHuman(vramBytes)} per frame).`;
       warningDetails = {
-        title: `Extreme single-frame VRAM memory toll (${formatBytes(vramBytes)}).`,
+        title: `Extreme single-frame VRAM memory toll (${bytesHuman(vramBytes)}).`,
         frozen: [],
         active: ['All features active — monitor system memory footprint.'],
       };
     } else if (vramBytes > 500 * 1024 * 1024) {
       hardwareToll = 'heavy';
-      tollWarning = `Heavy GPU memory load (${formatBytes(vramBytes)}).`;
+      tollWarning = `Heavy GPU memory load (${bytesHuman(vramBytes)}).`;
       warningDetails = {
-        title: `Heavy GPU memory workload (${formatBytes(vramBytes)} per frame).`,
+        title: `Heavy GPU memory workload (${bytesHuman(vramBytes)} per frame).`,
         frozen: [],
         active: ['All features active — multi-gigapixel compute mode.'],
       };
@@ -133,9 +142,9 @@ export class TelemetryMonitor {
       fps: this.#currentFps,
       frameTimeMs: Number(this.#lastFrameDurationMs.toFixed(2)),
       vramBytes,
-      vramHuman: formatBytes(vramBytes),
+      vramHuman: bytesHuman(vramBytes),
       jsHeapBytes: heap,
-      jsHeapHuman: heap !== null ? formatBytes(heap) : null,
+      jsHeapHuman: heap !== null ? bytesHuman(heap) : null,
       throughputMpxPerSec: Number(throughputMpxPerSec.toFixed(1)),
       throughputHuman,
       hardwareToll,
@@ -156,12 +165,7 @@ export class TelemetryMonitor {
   }
 }
 
-export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MiB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GiB`;
-}
+export const formatBytes = bytesHuman;
 
 export function formatThroughput(mpxPerSec: number): string {
   if (mpxPerSec >= 1000) {

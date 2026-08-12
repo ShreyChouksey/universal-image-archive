@@ -35,7 +35,7 @@ import {
   type PlateReport,
   type PlateVerdict,
 } from './core/plate';
-import { BIGINT_MAX_BYTES, archiveScale, sampleSeed, unpackAddressFile } from './core/address';
+import { BIGINT_MAX_BYTES, DECIMAL_MODULUS, archiveScale, sampleSeed, unpackAddressFile } from './core/address';
 import {
   randomSeed,
   seedAdd,
@@ -56,7 +56,6 @@ import {
   tailPatchFromBytes,
   type TailPatch,
 } from './core/offset';
-import { DECIMAL_MODULUS } from './core/address';
 import { Stage } from './ui/stage';
 import { Reader, drawHistogram } from './ui/reader';
 import { addressAnchors, archiveAnchors, describeDecimalCost, gridFunFacts } from './core/magnitude';
@@ -219,7 +218,13 @@ let frameQueued = false;
 
 function updateTelemetryUI(): void {
   if (!renderer) return;
-  const sample = telemetry.sample(state.format, state.rounds);
+  const sample = telemetry.sample(
+    state.format,
+    state.rounds,
+    state.mode,
+    stage?.viewportW ?? 1920,
+    stage?.viewportH ?? 1080,
+  );
   const dot = document.getElementById('pipelineDot');
   if (dot) dot.dataset.state = sample.hardwareToll === 'optimal' ? 'ready' : sample.hardwareToll;
 
@@ -926,6 +931,11 @@ function confirmFormatChange(): boolean {
 
 function applyFormat(): void {
   reader = null;
+  renderResolutionOptions();
+  const depthSel = $<HTMLSelectElement>('depth');
+  if (depthSel) depthSel.value = state.format.depth.id;
+  const geoSel = $<HTMLSelectElement>('geometry');
+  if (geoSel) geoSel.value = geometryOf();
   renderPlacementChoice();
   stage.setFormat(state.format);
   renderScale();
@@ -942,6 +952,7 @@ function applyFormat(): void {
   syncUrl();
   updateLowBitsHint();
   updateSearchControls();
+  updatePlateDrawerUI();
 }
 
 function updateSearchControls(): void {
@@ -969,6 +980,7 @@ function updateLowBitsHint(): void {
 let pendingFile: File | null = null;
 /** Dimensions of the staged picture, read once when it is chosen. */
 let pendingDims: { width: number; height: number } | null = null;
+let stagedObjectUrl: string | null = null;
 
 /**
  * Where a picture whose dimensions match no listed grid can live.
@@ -1034,10 +1046,16 @@ function stageForSearch(file: File): void {
   dropzone.querySelector<HTMLElement>('.dropzone__title')!.textContent = file.name;
   dropzone.querySelector<HTMLElement>('.dropzone__hint')!.textContent = bytesHuman(file.size);
 
+  if (stagedObjectUrl) {
+    URL.revokeObjectURL(stagedObjectUrl);
+    stagedObjectUrl = null;
+  }
+
   const previewBox = document.getElementById('dropzonePreview');
   const previewImg = document.getElementById('dropzoneImg') as HTMLImageElement | null;
   if (previewBox && previewImg && file.type.startsWith('image/')) {
-    previewImg.src = URL.createObjectURL(file);
+    stagedObjectUrl = URL.createObjectURL(file);
+    previewImg.src = stagedObjectUrl;
     previewBox.hidden = false;
   }
 
@@ -1229,6 +1247,17 @@ async function mintPlate(): Promise<void> {
       error instanceof Error ? error.message : 'The plate could not be constructed.';
   } finally {
     busy(false);
+  }
+}
+
+function updatePlateDrawerUI(): void {
+  const supported = plateSupported(state.format);
+  const warning = $('plateFormatWarning');
+  if (warning) warning.hidden = supported;
+  const mintBtn = $<HTMLButtonElement>('mintPlate');
+  if (mintBtn) {
+    mintBtn.disabled = !supported;
+    mintBtn.title = supported ? 'Construct plate' : 'Switch format to 4K UHD and 48-bit depth to construct plates';
   }
 }
 
@@ -1591,7 +1620,11 @@ function openDrawer(panel: string | null): void {
     drawer.dataset.open = 'false';
     document.body.dataset.drawerOpen = 'false';
     document.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-expanded', 'false'));
-    setTimeout(() => window.dispatchEvent(new Event('resize')), 240);
+    stage?.clampLoupe();
+    setTimeout(() => {
+      window.dispatchEvent(new Event('resize'));
+      stage?.clampLoupe();
+    }, 240);
     return;
   }
   drawer.dataset.open = 'true';
@@ -1603,7 +1636,12 @@ function openDrawer(panel: string | null): void {
   document.querySelectorAll<HTMLElement>('.tab').forEach((t) => {
     t.setAttribute('aria-expanded', String(t.dataset.drawer === panel));
   });
-  setTimeout(() => window.dispatchEvent(new Event('resize')), 240);
+  if (panel === 'plate') updatePlateDrawerUI();
+  stage?.clampLoupe();
+  setTimeout(() => {
+    window.dispatchEvent(new Event('resize'));
+    stage?.clampLoupe();
+  }, 240);
 }
 
 // ---------------------------------------------------------------------------
@@ -1753,6 +1791,27 @@ async function boot(): Promise<void> {
   }
   $('parkedReturn')?.addEventListener('click', () => void returnToHeld());
   $('parkedDiscard')?.addEventListener('click', () => void discardHeld());
+
+  async function copyPermalink(): Promise<void> {
+    syncUrl();
+    const url = window.location.href;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast('Permalink URL copied to clipboard');
+    } catch {
+      toast('Failed to copy URL');
+    }
+    const btn = document.getElementById('shareLink');
+    if (btn) {
+      const prev = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => {
+        btn.textContent = prev;
+      }, 1500);
+    }
+  }
+
+  $('shareLink')?.addEventListener('click', () => void copyPermalink());
 
   $('copySeed').addEventListener('click', async () => {
     if (state.mode === 'address') {
@@ -1955,14 +2014,32 @@ async function boot(): Promise<void> {
     (l) => `<option value="${l.id}">${l.label}</option>`,
   ).join('');
   $<HTMLInputElement>('plateGround').value = seedToHex(state.seed);
-  $<HTMLInputElement>('plateStatement').value = new Date()
-    .toISOString()
-    .replace(/\D/g, '')
-    .slice(0, 15)
-    .padEnd(15, '0');
+  $<HTMLInputElement>('plateStatement').value = normaliseStatement(new Date().toISOString());
   $('plateUseCurrent').addEventListener('click', () => {
     $<HTMLInputElement>('plateGround').value = seedToHex(state.seed);
   });
+
+  $('plateAutoSetFormat')?.addEventListener('click', () => {
+    state.format = {
+      resolution: RESOLUTIONS.find((r) => r.id === 'uhd4k') ?? state.format.resolution,
+      depth: DEPTHS.find((d) => d.id === 'd48') ?? state.format.depth,
+    };
+    applyFormat();
+    toast('Format set to 4K UHD 48-Bit');
+  });
+
+  $('platePresetToday')?.addEventListener('click', () => {
+    $<HTMLInputElement>('plateStatement').value = normaliseStatement(new Date().toISOString());
+    toast('Date statement loaded');
+  });
+
+  $('platePresetRandom')?.addEventListener('click', () => {
+    let rand = '';
+    while (rand.length < 15) rand += Math.floor(Math.random() * 10);
+    $<HTMLInputElement>('plateStatement').value = rand;
+    toast('Random 15 digits loaded');
+  });
+
   $('mintPlate').addEventListener('click', () => void mintPlate());
 
   function triggerStepButton(id: string): void {
@@ -1980,10 +2057,17 @@ async function boot(): Promise<void> {
       if (e.key === 'Escape') target.blur();
       return;
     }
-    // A button keeps focus after it is clicked, and Space activates a focused
-    // button. Without this, pressing Space after clicking Random would fire
-    // Random again and toggle Traverse at the same time.
-    if (target.matches('button') && (e.key === ' ' || e.key === 'Enter')) return;
+    // A button keeps focus after it is clicked. Steer Space to toggle Traverse
+    // instead of re-triggering the focused button.
+    if (target.matches('button')) {
+      if (e.key === ' ') {
+        e.preventDefault();
+        target.blur();
+        setPlaying(!state.playing);
+        return;
+      }
+      if (e.key === 'Enter') return;
+    }
 
     // Interactive Option / Alt shortcuts: Option+A, Option+S, Option+D, Option+F
     if (e.altKey) {
@@ -2006,6 +2090,11 @@ async function boot(): Promise<void> {
       if (code === 'KeyF') {
         e.preventDefault();
         triggerStepButton('stepUp');
+        return;
+      }
+      if (code === 'KeyC') {
+        e.preventDefault();
+        void copyPermalink();
         return;
       }
     }
@@ -2069,11 +2158,16 @@ async function runSelfChecks(): Promise<void> {
 
   try {
     const gpu = await renderer.probe({ format: state.format, mode: 'seed', seed: state.seed, rounds: state.rounds });
+    const { width, height } = state.format.resolution;
     const shift = state.format.depth.bpc - 8;
     let mismatches = 0;
+    let checked = 0;
     for (let y = 0; y < PROBE; y++) {
+      if (y >= height) continue;
       for (let x = 0; x < PROBE; x++) {
-        const cpu = sampleSeed(state.format, state.seed, y * state.format.resolution.width + x, state.rounds);
+        if (x >= width) continue;
+        checked++;
+        const cpu = sampleSeed(state.format, state.seed, y * width + x, state.rounds);
         const i = (y * PROBE + x) * 3;
         // The probe target is 8-bit, so compare the top 8 bits of each channel.
         // Philox is chaotic: any divergence changes every bit, not just the low ones.
@@ -2087,9 +2181,9 @@ async function runSelfChecks(): Promise<void> {
       }
     }
     if (mismatches === 0) {
-      console.info(`archive: GPU matches CPU across ${PROBE * PROBE} probed pixels`);
+      console.info(`archive: GPU matches CPU across ${checked} probed pixels`);
     } else {
-      console.error(`archive: GPU/CPU divergence on ${mismatches} of ${PROBE * PROBE} pixels`);
+      console.error(`archive: GPU/CPU divergence on ${mismatches} of ${checked} pixels`);
       toast('Renderer disagrees with the address generator');
     }
   } catch (error) {
@@ -2111,8 +2205,12 @@ async function runSelfChecks(): Promise<void> {
       );
       const shift = state.format.depth.bpc - 8;
       let mismatches = 0;
+      let checked = 0;
       for (let y = 0; y < PROBE; y++) {
+        if (y >= height) continue;
         for (let x = 0; x < PROBE; x++) {
+          if (x >= width) continue;
+          checked++;
           const t = screenToTexel(x, y, PROBE, PROBE, width, height, look);
           const cpu = sampleSeed(state.format, state.seed, t.y * width + t.x, state.rounds);
           const i = (y * PROBE + x) * 3;
@@ -2126,9 +2224,9 @@ async function runSelfChecks(): Promise<void> {
         }
       }
       if (mismatches === 0) {
-        console.info(`archive: sphere projection matches the CPU across ${PROBE * PROBE} rays`);
+        console.info(`archive: sphere projection matches the CPU across ${checked} rays`);
       } else {
-        console.error(`archive: sphere projection diverges on ${mismatches} of ${PROBE * PROBE} rays`);
+        console.error(`archive: sphere projection diverges on ${mismatches} of ${checked} rays`);
         toast('Sphere projection disagrees with the reference');
       }
     } catch (error) {

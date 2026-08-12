@@ -52,7 +52,7 @@ export function philox96x32(
 
     for (let i = 0; i < 96; i += 2) {
       const [hi, lo] = mulhilo(c0, out[i]!);
-      const key = seed[i]! ^ (c1 + r);
+      const key = seed[i]! ^ seed[i + 1]! ^ (c1 + r);
       out[i] = (lo ^ out[(i + 1) % 96]! ^ key) >>> 0;
       out[(i + 1) % 96] = hi >>> 0;
     }

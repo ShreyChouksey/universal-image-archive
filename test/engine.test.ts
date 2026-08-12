@@ -1936,6 +1936,62 @@ test('Layer 0: WebGPU 3,072-bit compute engine instantiates cleanly', async () =
   engine.dispose();
 });
 
+test('Sparsity Engine: 21M coin supply halving schedule computes exact block rewards', async () => {
+  const { getBlockSubsidy, INITIAL_SUBSIDY } = await import('../src/core/sparsity.ts');
+
+  // Era 0 (Blocks 0 - 209,999)
+  assert.equal(getBlockSubsidy(0), INITIAL_SUBSIDY);
+  assert.equal(getBlockSubsidy(209_999), INITIAL_SUBSIDY);
+
+  // Era 1 (Blocks 210,000 - 419,999)
+  assert.equal(getBlockSubsidy(210_000), INITIAL_SUBSIDY / 2n);
+  assert.equal(getBlockSubsidy(419_999), INITIAL_SUBSIDY / 2n);
+
+  // Era 2 (Halving 2)
+  assert.equal(getBlockSubsidy(420_000), INITIAL_SUBSIDY / 4n);
+
+  // Halving #33 (Block 6,930,000) -> 0 subsidy
+  assert.equal(getBlockSubsidy(6_930_000), 0n);
+});
+
+test('Sparsity Engine: Cumulative supply is strictly bounded by 21,000,000 coins hardcap', async () => {
+  const { getTotalSupplyAtHeight, MAX_SUPPLY } = await import('../src/core/sparsity.ts');
+
+  const supplyAtGenesis = getTotalSupplyAtHeight(0);
+  assert.equal(supplyAtGenesis, 50_0000_0000n);
+
+  const supplyAtFirstHalving = getTotalSupplyAtHeight(209_999);
+  assert.equal(supplyAtFirstHalving, 10_500_000_0000_0000n); // 10.5M coins
+
+  const supplyFarFuture = getTotalSupplyAtHeight(10_000_000);
+  assert.ok(supplyFarFuture <= MAX_SUPPLY);
+  assert.equal(supplyFarFuture, MAX_SUPPLY);
+});
+
+test('Sparsity Engine: evaluateBlockSparsity checks 3,072-bit seed difficulty targets', async () => {
+  const { evaluateBlockSparsity } = await import('../src/core/sparsity.ts');
+  const { randomSeed3072 } = await import('../src/core/seed3072.ts');
+  const seed = randomSeed3072();
+
+  const res = evaluateBlockSparsity(seed, 0); // 0 leading zeros required
+  assert.equal(res.valid, true);
+  assert.ok(typeof res.leadingZeros === 'number');
+  assert.equal(res.hashHex.length, 64);
+});
+
+test('Sparsity Engine: calculateNextDifficulty retargets difficulty based on actual time ratio', async () => {
+  const { calculateNextDifficulty } = await import('../src/core/sparsity.ts');
+
+  // Fast block production -> increase difficulty
+  const higherDiff = calculateNextDifficulty(16, 500, 1000);
+  assert.equal(higherDiff, 17);
+
+  // Slow block production -> decrease difficulty
+  const lowerDiff = calculateNextDifficulty(16, 2000, 1000);
+  assert.equal(lowerDiff, 15);
+});
+
+
 
 
 

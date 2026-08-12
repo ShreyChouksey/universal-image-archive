@@ -1914,11 +1914,18 @@ test('Layer 0: Philox96x32 Feistel generator is deterministic and populates 96 w
 test('Layer 0: materialiseSeed3072 generates pixel payload for tiny grid', async () => {
   const { materialiseSeed3072 } = await import('../src/core/philox96.ts');
   const { randomSeed3072 } = await import('../src/core/seed3072.ts');
-  const { DEFAULT_FORMAT } = await import('../src/core/format.ts');
+  const { pixelCount } = await import('../src/core/format.ts');
+  type FormatType = import('../src/core/format.ts').ArchiveFormat;
   const seed = randomSeed3072();
 
-  const buffer = new Uint8Array(192); // 8x8 24-bit
-  materialiseSeed3072(DEFAULT_FORMAT, seed, buffer, 32);
+  const grid8x8: FormatType = {
+    resolution: { id: 'grid8', name: '8x8 Grid', width: 8, height: 8, aspect: 1, megaPixels: 0.000064, planeOnly: true },
+    depth: { id: '24', bpc: 8, bytesPerPixel: 3 },
+    geometry: 'plane',
+  };
+
+  const buffer = new Uint8Array(pixelCount(grid8x8) * grid8x8.depth.bytesPerPixel);
+  materialiseSeed3072(grid8x8, seed, buffer, 32);
   assert.equal(buffer.length, 192);
 });
 

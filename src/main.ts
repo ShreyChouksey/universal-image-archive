@@ -65,6 +65,20 @@ import { generateSplatScene, sampleGaussianSplat } from './core/splat';
 import { mintZkPlateClaim, verifyZkPlateClaim } from './core/zkPlate';
 import { createWebXRManager } from './gpu/webxr';
 import { createP2PMeshNode } from './core/p2pMesh';
+import {
+  UIA_IMAGE_GENERATOR,
+  UIA_IMAGE_GENERATOR_VERSION,
+  cloneProvenance,
+  createActiveAddressSnapshot,
+  hasSnapshotVersion,
+  isPersistableProvenance,
+  parseActiveAddressSnapshot,
+  parseLegacyActiveAddressRecord,
+  type ActiveAddressProvenance,
+  type CanonicalAddressFormat,
+  type OpaqueSource,
+  type SeedWords,
+} from './core/activeAddressSnapshot';
 
 declare global {
   interface Window {
@@ -108,8 +122,15 @@ const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) 
  */
 type Held =
   | { kind: 'none' }
-  | { kind: 'seed'; seed: Seed; offset: number }
-  | { kind: 'foreign'; label: string; origin: Seed };
+  | {
+      kind: 'seed';
+      seed: Seed;
+      offset: number;
+      rounds: number;
+      generator: typeof UIA_IMAGE_GENERATOR;
+      generatorVersion: typeof UIA_IMAGE_GENERATOR_VERSION;
+    }
+  | { kind: 'foreign'; label: string; origin: Seed | null; source: OpaqueSource };
 
 interface State {
   format: ArchiveFormat;
@@ -121,6 +142,8 @@ interface State {
   /** 'seed' renders from the coordinate and offset; 'address' renders a texture. */
   mode: 'seed' | 'address';
   held: Held;
+  /** Honest identity of the bytes currently retained by the worker. */
+  activeAddress: ActiveAddressProvenance | null;
   playing: boolean;
 }
 
@@ -133,8 +156,93 @@ const state: State = {
   entropyMode: false,
   mode: 'seed',
   held: { kind: 'none' },
+  activeAddress: null,
   playing: false,
 };
+
+const seedWords = (seed: Seed): SeedWords => [seed[0], seed[1], seed[2], seed[3]];
+const seedFromWords = (words: SeedWords): Seed => Uint32Array.from(words) as Seed;
+
+function derivedProvenance(seed: Seed, rounds: number, totalOffset: number): ActiveAddressProvenance {
+  return {
+    kind: 'derived',
+    generator: UIA_IMAGE_GENERATOR,
+    generatorVersion: UIA_IMAGE_GENERATOR_VERSION,
+    seed: seedWords(seed),
+    rounds,
+    totalOffset,
+  };
+}
+
+function opaqueProvenance(
+  source: OpaqueSource,
+  label: string,
+  returnSeed: Seed | null,
+): ActiveAddressProvenance {
+  return { kind: 'opaque', source, label, returnSeed: returnSeed ? seedWords(returnSeed) : null };
+}
+
+function heldFromProvenance(provenance: ActiveAddressProvenance): Held {
+  if (provenance.kind === 'derived') {
+    return {
+      kind: 'seed',
+      seed: seedFromWords(provenance.seed),
+      offset: provenance.totalOffset,
+      rounds: provenance.rounds,
+      generator: provenance.generator,
+      generatorVersion: provenance.generatorVersion,
+    };
+  }
+  return {
+    kind: 'foreign',
+    label: provenance.label,
+    origin: provenance.returnSeed ? seedFromWords(provenance.returnSeed) : null,
+    source: provenance.source,
+  };
+}
+
+/** Clear the identity before any operation that may replace the worker bytes. */
+function beginAddressReplacement(): void {
+  state.activeAddress = null;
+  state.held = { kind: 'none' };
+  currentAddressHex = null;
+  state.mode = 'address';
+  addressTexels = null;
+  renderer.setAddressTexture(1, 1, null);
+  requestDraw();
+  syncUrl();
+}
+
+function canonicalFormat(format: ArchiveFormat): CanonicalAddressFormat {
+  return {
+    width: format.resolution.width,
+    height: format.resolution.height,
+    bpc: format.depth.bpc,
+    channels: 3,
+    geometry: format.resolution.geometry,
+  };
+}
+
+function sameCanonicalFormat(left: CanonicalAddressFormat, right: CanonicalAddressFormat): boolean {
+  return left.width === right.width &&
+    left.height === right.height &&
+    left.bpc === right.bpc &&
+    left.channels === right.channels &&
+    left.geometry === right.geometry;
+}
+
+function archiveFormatFromCanonical(format: CanonicalAddressFormat): ArchiveFormat | null {
+  const depth = DEPTHS.find((candidate) => candidate.bpc === format.bpc);
+  const resolution =
+    RESOLUTIONS.find(
+      (candidate) =>
+        candidate.width === format.width &&
+        candidate.height === format.height &&
+        candidate.geometry === format.geometry,
+    ) ??
+    (format.geometry === 'plane' ? customResolution(format.width, format.height) : null);
+  return depth && resolution ? { depth, resolution } : null;
+}
 
 /** The tail patch for the current location, recomputed only when it moves. */
 let patch: TailPatch | null = null;
@@ -174,12 +282,32 @@ function refreshPatch(): boolean {
  * this first. It is one step of arithmetic on 47 MiB, paid once at the moment
  * it matters rather than on every press.
  */
-async function flushOffset(): Promise<void> {
-  if (state.offset === 0 || state.mode !== 'address' || state.held.kind === 'none') return;
+async function flushOffset(): Promise<boolean> {
+  if (state.offset === 0 || state.mode !== 'address') return true;
+  const current = state.activeAddress;
+  if (!current) {
+    toast('The loaded address has no identity. Its pending offset was not applied.');
+    return false;
+  }
+  if (!isPersistableProvenance(current)) {
+    toast('This legacy address can be viewed and exported, but not changed automatically.');
+    return false;
+  }
   const delta = state.offset;
+  const next = cloneProvenance(current);
+  if (next.kind === 'derived') {
+    const totalOffset = next.totalOffset + delta;
+    if (!Number.isSafeInteger(totalOffset)) {
+      toast('That offset exceeds the exact address range.');
+      return false;
+    }
+    next.totalOffset = totalOffset;
+  }
   const changedFrom = await client.step(delta);
   state.offset = 0;
   patch = null;
+  state.activeAddress = next;
+  state.held = heldFromProvenance(next);
 
   // Repaint the rows the carry reached, and refresh the cached base.
   const { width, height } = state.format.resolution;
@@ -190,10 +318,16 @@ async function flushOffset(): Promise<void> {
     renderer.updateAddressRows(band.y0, band.rows, band.data);
     addressTexels.set(band.data, band.y0 * width * 4);
   } else {
-    await adoptWorkerAddress();
+    await adoptWorkerAddress(next);
+    await renderAddressReadout();
+    requestDraw();
+    return true;
   }
+  await persistCurrentActiveAddress();
+  syncUrl();
   await renderAddressReadout();
   requestDraw();
+  return true;
 }
 
 const sameSeed = (a: Seed, b: Seed): boolean =>
@@ -204,12 +338,13 @@ const sameSeed = (a: Seed, b: Seed): boolean =>
  * by folding in a pending offset, which `flushOffset` does on demand.
  */
 function workerMatchesStage(): boolean {
-  if (state.mode === 'address') return state.held.kind !== 'none';
+  if (state.mode === 'address') return state.activeAddress !== null;
   return (
     state.offset === 0 &&
-    state.held.kind === 'seed' &&
-    state.held.offset === 0 &&
-    sameSeed(state.held.seed, state.seed)
+    state.activeAddress?.kind === 'derived' &&
+    state.activeAddress.totalOffset === 0 &&
+    state.activeAddress.rounds === state.rounds &&
+    sameSeed(seedFromWords(state.activeAddress.seed), state.seed)
   );
 }
 
@@ -217,7 +352,10 @@ function workerMatchesStage(): boolean {
 function coordinateNamesStage(): boolean {
   if (state.mode === 'seed') return true;
   return (
-    state.held.kind === 'seed' && state.held.offset === 0 && sameSeed(state.held.seed, state.seed)
+    state.activeAddress?.kind === 'derived' &&
+    state.activeAddress.totalOffset === 0 &&
+    state.activeAddress.rounds === state.rounds &&
+    sameSeed(seedFromWords(state.activeAddress.seed), state.seed)
   );
 }
 
@@ -687,13 +825,12 @@ function setSeed(seed: Seed, { pushUrl = true, offset = 0 } = {}): void {
   if (state.held.kind !== 'none') {
     const origin = state.held.kind === 'foreign' ? state.held.origin : state.held.seed;
     const targetOffset = state.held.kind === 'seed' ? state.held.offset : 0;
-    if (sameSeed(seed, origin) && offset === targetOffset) {
+    if (origin && sameSeed(seed, origin) && offset === targetOffset) {
       void returnToHeld();
       return;
     }
   }
 
-  const wasAddressMode = state.mode === 'address';
   state.seed = seed;
   state.offset = offset;
   state.headOffset = 0;
@@ -702,7 +839,7 @@ function setSeed(seed: Seed, { pushUrl = true, offset = 0 } = {}): void {
   addressTexels = null;
   renderer.setAddressTexture(1, 1, null);
 
-  const parking = wasAddressMode && state.held.kind !== 'none';
+  const parking = state.held.kind !== 'none' && state.activeAddress !== null;
   if (parking) toast(`${heldLabel()} is still loaded — click return on stage to view it`);
   if (!parking) void clearActiveAddressState();
 
@@ -736,6 +873,18 @@ function stepSize(): number {
  * coordinate itself is no longer something you walk; it is where you jump to.
  */
 function walk(delta: number): void {
+  if (state.mode === 'address' && state.activeAddress === null) {
+    toast('The loaded address has no identity. It was not walked or replaced.');
+    return;
+  }
+  if (
+    state.mode === 'address' &&
+    state.activeAddress?.kind === 'opaque' &&
+    state.activeAddress.source === 'legacy-unknown'
+  ) {
+    toast('This legacy address can be viewed and exported, but not walked automatically.');
+    return;
+  }
   const previous = state.offset;
   state.offset += delta;
   if (!refreshPatch()) {
@@ -745,7 +894,7 @@ function walk(delta: number): void {
     state.offset = previous;
     refreshPatch();
     void (async () => {
-      await flushOffset();
+      if (!(await flushOffset())) return;
       await stepAddress(delta);
     })();
     return;
@@ -775,11 +924,21 @@ function heldLabel(): string {
  * meant when you left. The worker never let go of the bytes.
  */
 async function returnToHeld(): Promise<void> {
-  if (state.held.kind === 'none') return;
-  const origin = state.held.kind === 'foreign' ? state.held.origin : state.held.seed;
-  state.seed = Uint32Array.from(origin) as Seed;
+  const provenance = state.activeAddress;
+  if (state.held.kind === 'none' || !provenance) {
+    toast('The loaded address has no identity to return to.');
+    return;
+  }
+  if (provenance.kind === 'derived') {
+    state.seed = seedFromWords(provenance.seed);
+    state.rounds = provenance.rounds;
+    const roundsSelect = document.getElementById('philoxRounds') as HTMLSelectElement | null;
+    if (roundsSelect) roundsSelect.value = String(provenance.rounds);
+  } else if (provenance.returnSeed) {
+    state.seed = seedFromWords(provenance.returnSeed);
+  }
   renderSeed();
-  await adoptWorkerAddress();
+  await adoptWorkerAddress(provenance, { persist: false });
   // The readout IS the address section now — no placeholder after it, or the
   // chip's scaffolding would paint over the very readout the return restored.
   await renderAddressReadout();
@@ -791,12 +950,20 @@ async function returnToHeld(): Promise<void> {
 async function discardHeld(): Promise<void> {
   if (state.held.kind === 'none') return;
   state.held = { kind: 'none' };
+  state.activeAddress = null;
   await client.release();
   renderAddressPlaceholder();
   updateLaneUI();
 }
 
+let resolveAddressCalls = 0;
+
 async function resolveAddress(): Promise<void> {
+  resolveAddressCalls++;
+  if (state.mode === 'address' && state.activeAddress === null) {
+    toast('The loaded address has no identity. Nothing was materialised or replaced.');
+    return;
+  }
   const cap = capacity();
   if (!cap.materialisable) {
     // The texture allocation fails silently on the GPU, so refusing here is the
@@ -815,14 +982,11 @@ async function resolveAddress(): Promise<void> {
   }
   busy(true, 'Materialising address', 0);
   try {
+    beginAddressReplacement();
     await client.materialise(state.format, state.seed, onProgress, state.rounds);
     if (state.offset !== 0) await client.step(state.offset);
-    state.held = {
-      kind: 'seed',
-      seed: Uint32Array.from(state.seed) as Seed,
-      offset: state.offset,
-    };
-    await adoptWorkerAddress();
+    const provenance = derivedProvenance(state.seed, state.rounds, state.offset);
+    await adoptWorkerAddress(provenance);
     await renderAddressReadout();
     updateLaneUI();
   } catch (error) {
@@ -851,9 +1015,17 @@ let pendingStep = 0;
 async function stepAddress(delta: number): Promise<void> {
   pendingStep += delta;
   if (stepping) return;
+  if (state.mode === 'address' && state.activeAddress === null) {
+    pendingStep = 0;
+    toast('The loaded address has no identity. It was not stepped or replaced.');
+    return;
+  }
   if (!workerMatchesStage()) {
     await resolveAddress();
-    if (!workerMatchesStage()) return;
+    if (!workerMatchesStage()) {
+      pendingStep = 0;
+      return;
+    }
   }
   stepping = true;
   try {
@@ -869,10 +1041,27 @@ async function stepAddress(delta: number): Promise<void> {
 
 async function applyStep(delta: number): Promise<void> {
   {
-    const changedFrom = await client.step(delta);
-    if (state.held.kind === 'seed') {
-      state.held = { ...state.held, offset: state.held.offset + delta };
+    const current = state.activeAddress;
+    if (!current) {
+      toast('The loaded address has no identity. It was not stepped.');
+      return;
     }
+    if (!isPersistableProvenance(current)) {
+      toast('This legacy address can be viewed and exported, but not changed automatically.');
+      return;
+    }
+    const next = cloneProvenance(current);
+    if (next.kind === 'derived') {
+      const totalOffset = next.totalOffset + delta;
+      if (!Number.isSafeInteger(totalOffset)) {
+        toast('That step exceeds the exact address-offset range.');
+        return;
+      }
+      next.totalOffset = totalOffset;
+    }
+    const changedFrom = await client.step(delta);
+    state.activeAddress = next;
+    state.held = heldFromProvenance(next);
 
     // Repaint only the rows the carry reached. A step of one touches the last
     // byte, so this is a single row instead of the whole texture — the
@@ -889,9 +1078,14 @@ async function applyStep(delta: number): Promise<void> {
       addressTexels.set(band.data, band.y0 * width * 4);
       requestDraw();
     } else {
-      await adoptWorkerAddress();
+      await adoptWorkerAddress(next);
+      await renderAddressReadout();
+      updateLaneUI();
+      return;
     }
 
+    await persistCurrentActiveAddress();
+    syncUrl();
     await renderAddressReadout();
     updateLaneUI();
   }
@@ -919,41 +1113,49 @@ function openAddressDb(): Promise<IDBDatabase> {
   });
 }
 
-async function saveActiveAddressState(bytes: Uint8Array): Promise<void> {
+async function saveActiveAddressState(
+  bytes: Uint8Array,
+  provenance: ActiveAddressProvenance | null,
+  format: ArchiveFormat,
+): Promise<boolean> {
+  if (!isPersistableProvenance(provenance)) {
+    toast('This address has no recorded identity to save; its bytes were left unchanged.');
+    return false;
+  }
+  const snapshot = createActiveAddressSnapshot(bytes, canonicalFormat(format), provenance);
+  if (!snapshot) {
+    toast('This address identity is invalid and was not written to browser storage.');
+    return false;
+  }
   try {
-    const hex = hexSlice(bytes, 0, bytes.length);
-    currentAddressHex = hex;
     const db = await openAddressDb();
-    const tx = db.transaction(IDB_STORE, 'readwrite');
-    tx.objectStore(IDB_STORE).put(
-      {
-        bytes: bytes.slice().buffer,
-        hex,
-        resolutionId: state.format.resolution.id,
-        depthId: state.format.depth.id,
-        geometry: geometryOf(),
-      },
-      'current',
-    );
-  } catch (e) {
-    console.warn('archive: IDB address save failed', e);
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).put(snapshot, 'current');
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error ?? new Error('Address snapshot transaction aborted'));
+    });
+    return true;
+  } catch (error) {
+    console.warn('archive: IDB address save failed', error);
+    toast('The address is active, but browser storage could not save it.');
+    return false;
   }
 }
 
-async function loadActiveAddressState(): Promise<{
-  bytes: ArrayBuffer;
-  hex: string;
-  resolutionId: string;
-  depthId: string;
-  geometry: string;
-} | null> {
+async function loadActiveAddressState(): Promise<unknown | null> {
   try {
     const db = await openAddressDb();
     return new Promise((resolve) => {
       const tx = db.transaction(IDB_STORE, 'readonly');
       const req = tx.objectStore(IDB_STORE).get('current');
-      req.onsuccess = () => resolve(req.result || null);
+      req.onsuccess = () => resolve(req.result ?? null);
       req.onerror = () => resolve(null);
+      tx.oncomplete = () => db.close();
     });
   } catch (e) {
     return null;
@@ -962,6 +1164,7 @@ async function loadActiveAddressState(): Promise<{
 
 async function clearActiveAddressState(): Promise<void> {
   currentAddressHex = null;
+  state.activeAddress = null;
   try {
     const db = await openAddressDb();
     const tx = db.transaction(IDB_STORE, 'readwrite');
@@ -971,37 +1174,65 @@ async function clearActiveAddressState(): Promise<void> {
   }
 }
 
-/** Pull the worker's current address onto the GPU and into the loupe's reach. */
-async function adoptWorkerAddress(): Promise<void> {
+/** Pull already-produced worker bytes into the UI under an explicit, honest identity. */
+async function adoptWorkerAddress(
+  provenance: ActiveAddressProvenance,
+  { persist = true }: { persist?: boolean } = {},
+): Promise<void> {
+  const nextProvenance = cloneProvenance(provenance);
+  const nextHeld = heldFromProvenance(nextProvenance);
+  const totalBytes =
+    state.format.resolution.width * state.format.resolution.height * state.format.depth.bytesPerPixel;
+  const tex = await client.texture();
+  const sliceRes = await client.slice(0, totalBytes);
+
   state.offset = 0;
   patch = null;
-  const tex = await client.texture();
   addressTexels = tex.data;
   renderer.setAddressTexture(tex.width, tex.height, tex.data);
   state.mode = 'address';
+  state.activeAddress = nextProvenance;
+  state.held = nextHeld;
+  currentAddressHex = hexSlice(sliceRes.bytes, 0, sliceRes.bytes.length);
 
-  // Persist the loaded address bytes so reloads stay on this exact image
-  const totalBytes = state.format.resolution.width * state.format.resolution.height * state.format.depth.bytesPerPixel;
-  try {
-    const sliceRes = await client.slice(0, totalBytes);
-    await saveActiveAddressState(sliceRes.bytes);
-  } catch (e) {
-    console.warn('archive: slice address failed', e);
-  }
+  if (persist) await saveActiveAddressState(sliceRes.bytes, nextProvenance, state.format);
 
   requestDraw();
   syncUrl();
 }
 
+async function persistCurrentActiveAddress(): Promise<boolean> {
+  const provenance = state.activeAddress;
+  if (!isPersistableProvenance(provenance)) {
+    toast('This address has no recorded identity to save; its bytes were left unchanged.');
+    return false;
+  }
+  try {
+    const totalBytes =
+      state.format.resolution.width * state.format.resolution.height * state.format.depth.bytesPerPixel;
+    const sliceRes = await client.slice(0, totalBytes);
+    currentAddressHex = hexSlice(sliceRes.bytes, 0, sliceRes.bytes.length);
+    return saveActiveAddressState(sliceRes.bytes, provenance, state.format);
+  } catch (error) {
+    console.warn('archive: could not read the active address for persistence', error);
+    toast('The address is active, but its browser snapshot could not be refreshed.');
+    return false;
+  }
+}
+
 function syncUrl(): void {
   const params = new URLSearchParams();
-  if (state.mode === 'address' && currentAddressHex) {
+  const activeLegacy =
+    state.mode === 'address' &&
+    state.activeAddress?.kind === 'opaque' &&
+    state.activeAddress.source === 'legacy-unknown';
+  if (state.mode === 'address' && currentAddressHex && !activeLegacy) {
     if (currentAddressHex.length <= 4096) {
       params.set('a', currentAddressHex);
     } else {
       params.set('a', currentAddressHex.slice(0, 32) + '...' + currentAddressHex.slice(-32));
     }
-  } else {
+  } else if (!activeLegacy) {
     params.set('c', seedToHex(state.seed));
     if (state.mode === 'seed' && state.offset !== 0) params.set('o', String(state.offset));
   }
@@ -1230,7 +1461,11 @@ async function renderAddressPanel(): Promise<void> {
   empty.hidden = true;
   loaded.hidden = false;
 
-  await flushOffset();
+  if (!(await flushOffset())) {
+    empty.hidden = false;
+    loaded.hidden = true;
+    return;
+  }
   const scale = archiveScale(state.format);
   if (!reader) {
     reader = new Reader(client, state.format, {
@@ -1243,7 +1478,7 @@ async function renderAddressPanel(): Promise<void> {
   }
   reader.setFormat(state.format, scale.bytes);
 
-  await flushOffset();
+  if (!(await flushOffset())) return;
   const report = await client.entropy();
   $('entropyFacts').innerHTML = [
     ['Shannon entropy', `${report.bitsPerByte.toFixed(6)} of 8 bits per byte`],
@@ -1348,6 +1583,8 @@ async function mintPlate(): Promise<void> {
 
   busy(true, 'Composing plate', 0);
   try {
+    const returnSeed = Uint32Array.from(state.seed) as Seed;
+    beginAddressReplacement();
     const report = await client.plate(
       state.format,
       ground,
@@ -1355,8 +1592,7 @@ async function mintPlate(): Promise<void> {
       $<HTMLSelectElement>('plateLayout').value,
       onProgress,
     );
-    state.held = { kind: 'foreign', label: `plate ${report.statement}`, origin: Uint32Array.from(state.seed) as Seed };
-    await adoptWorkerAddress();
+    await adoptWorkerAddress(opaqueProvenance('plate', `plate ${report.statement}`, returnSeed));
     await renderAddressReadout();
     updateLaneUI();
     renderPlateFacts(report);
@@ -1424,9 +1660,10 @@ async function inspectPng(file: File): Promise<void> {
     updateSearchControls();
 
     const bytes = decoded.pixels.slice();
+    const returnSeed = Uint32Array.from(state.seed) as Seed;
+    beginAddressReplacement();
     await client.adopt(state.format, bytes.buffer);
-    state.held = { kind: 'foreign', label: file.name, origin: Uint32Array.from(state.seed) as Seed };
-    await adoptWorkerAddress();
+    await adoptWorkerAddress(opaqueProvenance('file', file.name, returnSeed));
     await renderAddressReadout();
     updateLaneUI();
     renderVerdict(await client.verify(state.format));
@@ -1456,8 +1693,8 @@ function resolvableFormats(): ArchiveFormat[] {
   return out;
 }
 
-/** Applies a format a file brought with it, syncing every control and the URL. */
-function adoptImportedFormat(format: ArchiveFormat): void {
+/** Applies the exact format carried by bytes without deciding URL/source precedence. */
+function applyAddressFormat(format: ArchiveFormat): void {
   state.format = format;
   $<HTMLSelectElement>('geometry').value = format.resolution.geometry;
   renderResolutionOptions();
@@ -1466,6 +1703,11 @@ function adoptImportedFormat(format: ArchiveFormat): void {
   stage.setFormat(format);
   renderScale();
   updateSearchControls();
+}
+
+/** Applies a format a file brought with it, syncing every control and the URL. */
+function adoptImportedFormat(format: ArchiveFormat): void {
+  applyAddressFormat(format);
   // Custom grids ride the r= parameter (c900x1600), so a bespoke archive is as
   // linkable as a listed one.
   syncUrl();
@@ -1500,10 +1742,11 @@ async function importAddressText(file: File): Promise<void> {
       const bytes = new Uint8Array(byteCount);
       for (let i = 0; i < byteCount; i++) bytes[i] = parseInt(text.slice(i * 2, i * 2 + 2), 16);
 
+      const returnSeed = Uint32Array.from(state.seed) as Seed;
       adoptImportedFormat(format);
+      beginAddressReplacement();
       await client.adopt(format, bytes.buffer);
-      state.held = { kind: 'foreign', label: file.name, origin: Uint32Array.from(state.seed) as Seed };
-      await adoptWorkerAddress();
+      await adoptWorkerAddress(opaqueProvenance('file', file.name, returnSeed));
       await renderAddressReadout();
       updateLaneUI();
       renderVerdict(await client.verify(state.format));
@@ -1520,11 +1763,12 @@ async function importAddressText(file: File): Promise<void> {
           `The tab stays responsive; the work happens off to one side.`,
       );
       if (!ok) return;
+      const returnSeed = Uint32Array.from(state.seed) as Seed;
+      beginAddressReplacement();
       const format = await client.importDecimal(text, resolvableFormats(), onProgress);
 
       adoptImportedFormat(format);
-      state.held = { kind: 'foreign', label: file.name, origin: Uint32Array.from(state.seed) as Seed };
-      await adoptWorkerAddress();
+      await adoptWorkerAddress(opaqueProvenance('file', file.name, returnSeed));
       await renderAddressReadout();
       updateLaneUI();
       renderVerdict(await client.verify(state.format));
@@ -1575,9 +1819,10 @@ async function openAddressFile(file: File): Promise<void> {
     // The unpacked view is a window onto the file's buffer; copy it so the
     // transfer to the worker hands over a buffer of exactly the right length.
     const bytes = unpacked.bytes.slice();
+    const returnSeed = Uint32Array.from(state.seed) as Seed;
+    beginAddressReplacement();
     await client.adopt(state.format, bytes.buffer);
-    state.held = { kind: 'foreign', label: file.name, origin: Uint32Array.from(state.seed) as Seed };
-    await adoptWorkerAddress();
+    await adoptWorkerAddress(opaqueProvenance('file', file.name, returnSeed));
     await renderAddressReadout();
     updateLaneUI();
     $('searchStatus').textContent = `Opened ${file.name}.`;
@@ -1614,9 +1859,10 @@ async function locate(): Promise<void> {
   busy(true, 'Reading image', 0.05);
   try {
     const bitmap = await createImageBitmap(pendingFile);
+    const returnSeed = Uint32Array.from(state.seed) as Seed;
+    beginAddressReplacement();
     await client.search(state.format, bitmap, searchOptions(), state.seed, onProgress);
-    state.held = { kind: 'foreign', label: pendingFile.name, origin: Uint32Array.from(state.seed) as Seed };
-    await adoptWorkerAddress();
+    await adoptWorkerAddress(opaqueProvenance('search', pendingFile.name, returnSeed));
     await renderAddressReadout();
     updateLaneUI();
     $('searchStatus').textContent =
@@ -1643,10 +1889,31 @@ function download(blob: Blob, filename: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
-async function exportPng(): Promise<void> {
+/**
+ * Prepare an export without ever repairing an address-mode identity.
+ *
+ * A virtual address offset exists only as a renderer patch. Folding it into the
+ * worker would make export mutating, so M1 refuses that case visibly; a later
+ * engine slice can add a read-only delta view.
+ */
+async function prepareObservationalExport(): Promise<boolean> {
+  if (state.mode === 'address') {
+    if (!state.activeAddress) {
+      toast('The loaded address has no identity. Export was stopped without replacing it.');
+      return false;
+    }
+    if (state.offset !== 0) {
+      toast('This address has an uncommitted step. Return to the exact address before exporting.');
+      return false;
+    }
+    return true;
+  }
   if (!workerMatchesStage()) await resolveAddress();
-  if (!workerMatchesStage()) return;
-  await flushOffset();
+  return workerMatchesStage();
+}
+
+async function exportPng(): Promise<void> {
+  if (!(await prepareObservationalExport())) return;
   busy(true, 'Encoding PNG', 0);
   try {
     const { blob, filename } = await client.png(onProgress);
@@ -1660,9 +1927,7 @@ async function exportPng(): Promise<void> {
 }
 
 async function exportAddress(): Promise<void> {
-  if (!workerMatchesStage()) await resolveAddress();
-  if (!workerMatchesStage()) return;
-  await flushOffset();
+  if (!(await prepareObservationalExport())) return;
   const { blob, filename } = await client.addressFile();
   download(blob, filename);
   toast(`Address written · ${bytesHuman(blob.size)}`);
@@ -1670,9 +1935,7 @@ async function exportAddress(): Promise<void> {
 
 /** The address as readable hexadecimal — exact, and instant, because hex is the bytes. */
 async function exportHex(): Promise<void> {
-  if (!workerMatchesStage()) await resolveAddress();
-  if (!workerMatchesStage()) return;
-  await flushOffset();
+  if (!(await prepareObservationalExport())) return;
   busy(true, 'Writing hexadecimal', 0);
   try {
     const { blob, filename } = await client.hexFile(onProgress);
@@ -1692,9 +1955,7 @@ async function exportHex(): Promise<void> {
  * reads as a hang.
  */
 async function exportDecimal(): Promise<void> {
-  if (!workerMatchesStage()) await resolveAddress();
-  if (!workerMatchesStage()) return;
-  await flushOffset();
+  if (!(await prepareObservationalExport())) return;
 
   const scale = archiveScale(state.format);
   if (scale.bytes > BIGINT_MAX_BYTES) {
@@ -2006,6 +2267,10 @@ async function boot(): Promise<void> {
     roundsSelect.value = String(state.rounds);
     roundsSelect.addEventListener('change', async () => {
       const targetRounds = Number(roundsSelect.value);
+      const activeDerived =
+        state.mode === 'address' && state.activeAddress?.kind === 'derived'
+          ? cloneProvenance(state.activeAddress)
+          : null;
       if (state.mode === 'address') {
         const ok = window.confirm(
           `Changing cipher rounds to ${targetRounds} will re-materialise the active address (${heldLabel()}) under ${targetRounds} rounds of Philox Feistel mixing. Continue?`,
@@ -2018,6 +2283,14 @@ async function boot(): Promise<void> {
       state.rounds = targetRounds;
       refreshPatch();
       if (state.mode === 'address') {
+        // A derived address may be several exact steps from its seed. Its
+        // stored recipe—not ambient UI offset—is authoritative when changing
+        // rounds, or rematerialisation would silently jump back to offset zero.
+        if (activeDerived?.kind === 'derived') {
+          state.seed = seedFromWords(activeDerived.seed);
+          state.offset = activeDerived.totalOffset;
+          renderSeed();
+        }
         toast(`Re-evaluating address under ${state.rounds} cipher rounds...`);
         await resolveAddress();
         toast(`Address re-materialised under ${state.rounds} cipher rounds`);
@@ -2294,12 +2567,15 @@ async function boot(): Promise<void> {
   updateLowBitsHint();
   updateSearchControls();
 
-  // Address state restoration check: restore uploaded/materialised address across page reloads
-  const restored = await loadActiveAddressState();
+  // Address restoration is an identity boundary: bytes and provenance are
+  // selected together, never repaired afterward from the ambient seed.
+  const restoredRecord = await loadActiveAddressState();
   const hashParams = new URLSearchParams(location.hash.slice(1));
   const hashHex = hashParams.get('a');
 
   let restoredBytes: Uint8Array | null = null;
+  let restoredProvenance: ActiveAddressProvenance | null = null;
+  let persistRestored = false;
   if (hashHex && /^[0-9a-fA-F]+$/.test(hashHex)) {
     const expectedLength =
       state.format.resolution.width * state.format.resolution.height * state.format.depth.bytesPerPixel * 2;
@@ -2309,26 +2585,62 @@ async function boot(): Promise<void> {
         buf[i] = parseInt(hashHex.slice(i * 2, i * 2 + 2), 16);
       }
       restoredBytes = buf;
+      restoredProvenance = opaqueProvenance('exact-link', 'exact address link', null);
+      persistRestored = true;
     }
   }
 
-  if (!restoredBytes && restored) {
-    const expectedBytes =
-      state.format.resolution.width * state.format.resolution.height * state.format.depth.bytesPerPixel;
-    if (
-      restored.resolutionId === state.format.resolution.id &&
-      restored.depthId === state.format.depth.id &&
-      restored.geometry === geometryOf() &&
-      restored.bytes.byteLength === expectedBytes
-    ) {
-      restoredBytes = new Uint8Array(restored.bytes);
+  if (!restoredBytes && restoredRecord) {
+    const snapshot = parseActiveAddressSnapshot(restoredRecord);
+    if (snapshot) {
+      const restoredFormat = archiveFormatFromCanonical(snapshot.format);
+      const maxDimension = renderer.capabilities.maxTextureDimension;
+      if (
+        restoredFormat &&
+        sameCanonicalFormat(snapshot.format, canonicalFormat(state.format)) &&
+        formatCapacity(restoredFormat, maxDimension).materialisable
+      ) {
+        restoredBytes = new Uint8Array(snapshot.bytes);
+        restoredProvenance = cloneProvenance(snapshot.provenance);
+        if (restoredProvenance.kind === 'derived') {
+          state.seed = seedFromWords(restoredProvenance.seed);
+          state.rounds = restoredProvenance.rounds;
+          const roundsSelect = document.getElementById('philoxRounds') as HTMLSelectElement | null;
+          if (roundsSelect) roundsSelect.value = String(state.rounds);
+        } else if (restoredProvenance.returnSeed) {
+          state.seed = seedFromWords(restoredProvenance.returnSeed);
+        }
+        renderSeed();
+        renderSeedLocation();
+      }
+    } else if (!hasSnapshotVersion(restoredRecord)) {
+      const legacy = parseLegacyActiveAddressRecord(restoredRecord);
+      const expectedBytes =
+        state.format.resolution.width * state.format.resolution.height * state.format.depth.bytesPerPixel;
+      if (
+        legacy &&
+        legacy.resolutionId === state.format.resolution.id &&
+        legacy.depthId === state.format.depth.id &&
+        legacy.geometry === geometryOf() &&
+        legacy.bytes.byteLength === expectedBytes
+      ) {
+        restoredBytes = new Uint8Array(legacy.bytes);
+        restoredProvenance = opaqueProvenance(
+          'legacy-unknown',
+          'legacy restored address',
+          null,
+        );
+      }
+    } else {
+      console.warn('archive: rejected invalid or unsupported active-address snapshot');
     }
   }
 
-  if (restoredBytes) {
+  if (restoredBytes && restoredProvenance) {
     try {
+      beginAddressReplacement();
       await client.adopt(state.format, restoredBytes.buffer as ArrayBuffer);
-      await adoptWorkerAddress();
+      await adoptWorkerAddress(restoredProvenance, { persist: persistRestored });
       await renderAddressReadout();
       updateLaneUI();
     } catch (err) {
@@ -2510,6 +2822,14 @@ if (import.meta.env.DEV) {
     applyFormat,
     resolveAddress,
     adoptWorkerAddress,
+    persistCurrentActiveAddress,
+    stepAddress,
+    get diagnostics() {
+      return { resolveAddressCalls };
+    },
+    invalidateActiveAddressIdentity() {
+      state.activeAddress = null;
+    },
     requestDraw,
   };
 }

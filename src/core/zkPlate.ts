@@ -1,9 +1,9 @@
 /**
- * Zero-Knowledge Provenance Proof Core (ZK-Plates).
+ * Experimental Provenance Plate Helper (v0 Demo).
  *
- * Provides cryptographic ZK commitment hash generation and non-interactive
- * verification for provenance plate claims without requiring raw address
- * bytes transmission or unencrypted pixel disclosure.
+ * Provides basic statement commitment hashing and local claim structuring.
+ * This prototype helper does not provide zero-knowledge proofs or cryptographic
+ * non-malleability; see docs/protocol/charter-000.md for the protocol roadmap.
  */
 
 import type { ArchiveFormat } from './format';
@@ -26,7 +26,10 @@ export interface ZkPlateClaim {
   };
 }
 
-/** FNV-1a / SHA-256 style 256-bit commitment hash simulation over seed & statement */
+/**
+ * Bespoke 128-bit non-cryptographic rolling checksum over seed and statement.
+ * Not SHA-256, not 256-bit, not collision-resistant, and not a commitment.
+ */
 function computeCommitmentHash(seedHex: string, statement: string): string {
   const input = `ZKP:${seedHex}:${statement}:MOD10E15`;
   let h0 = 0x811c9dc5 >>> 0;
@@ -49,7 +52,7 @@ function computeCommitmentHash(seedHex: string, statement: string): string {
 }
 
 /**
- * Mints a non-interactive zero-knowledge plate claim for a statement.
+ * Builds a local provenance claim record. Not a proof and not zero-knowledge.
  */
 export function mintZkPlateClaim(
   _format: ArchiveFormat,
@@ -61,7 +64,9 @@ export function mintZkPlateClaim(
   const seedHex = seedToHex(seed);
   const commitmentHash = computeCommitmentHash(seedHex, statement);
 
-  // Compute non-interactive Schnorr/Feistel zero-knowledge response values
+  // WARNING: r0/r1 publish seed[0]^seed[2] and seed[1]^seed[3] after XOR with
+  // numTarget, which is recoverable from claim.statement. This is not Schnorr
+  // and not zero-knowledge.
   const numTarget = Number(BigInt(statement) % BigInt(DECIMAL_MODULUS));
   const r0 = ((seed[0] ^ seed[2] ^ numTarget) >>> 0).toString(16).padStart(8, '0');
   const r1 = ((seed[1] ^ seed[3] ^ numTarget) >>> 0).toString(16).padStart(8, '0');
@@ -76,25 +81,30 @@ export function mintZkPlateClaim(
       r0,
       r1,
       modulus: DECIMAL_MODULUS,
+      // Legacy demo flag only. verifyZkPlateClaim does not trust this field.
       verified: true,
     },
   };
 }
 
 /**
- * Verifies a ZK-Plate claim's internal mathematical consistency.
+ * Checks record shape and recomputes the bespoke checksum when a seed is
+ * supplied. It does not validate r0/r1 or prove provenance.
  */
 export function verifyZkPlateClaim(claim: ZkPlateClaim, seed?: Seed): boolean {
   if (claim.version !== 'zk-v1') return false;
   if (!claim.statement || claim.statement.length !== 15) return false;
   if (!claim.commitmentHash || claim.commitmentHash.length !== 32) return false;
   if (claim.proof.modulus !== DECIMAL_MODULUS) return false;
+  if (!claim.proof.r0 || !claim.proof.r1) return false;
 
-  if (seed) {
-    const seedHex = seedToHex(seed);
-    const expected = computeCommitmentHash(seedHex, claim.statement);
-    if (claim.commitmentHash !== expected) return false;
+  if (!seed) {
+    // The checksum cannot be recomputed without the seed. No public proof exists,
+    // so fail closed instead of trusting the legacy claim.proof.verified flag.
+    return false;
   }
 
-  return claim.proof.verified;
+  const seedHex = seedToHex(seed);
+  const expected = computeCommitmentHash(seedHex, claim.statement);
+  return claim.commitmentHash === expected;
 }

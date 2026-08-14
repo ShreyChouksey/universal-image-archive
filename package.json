@@ -10,9 +10,11 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "node --import ./test/register.mjs --test test/engine.test.ts",
+    "test:browser": "playwright test",
     "check": "npm run typecheck && npm test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@webgpu/types": "^0.1.60",
     "typescript": "^5.9.2",
     "vite": "^7.1.3"

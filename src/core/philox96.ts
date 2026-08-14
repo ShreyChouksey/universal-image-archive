@@ -1,9 +1,9 @@
 /**
- * 96-Word 3,072-Bit Philox ARX-Feistel Generator Core (Layer 0).
+ * Experimental 96-Word Generator Core (Layer 0 Prototype).
  *
- * Implements a 32-round Feistel network operating over 96 words (3,072-bit state
- * and key space). Evaluates 3,072-bit seeds into 8x8 48-bit grid pixels statelessly
- * in O(1) constant time on CPU and WebGPU.
+ * Implements a multi-round 96-word (3,072-bit) generator mapping for research.
+ * Evaluates 3,072-bit seed vectors into 8x8 48-bit grid pixel payloads.
+ * This candidate has not undergone formal cryptanalysis; see docs/protocol/charter-000.md.
  */
 
 import type { ArchiveFormat } from './format';
@@ -14,6 +14,10 @@ const PHILOX_CONSTANTS = [
   0xd2511f53, 0xcd9e8d57, 0x9e3779b9, 0xbb67ae85,
   0x85ebca6b, 0xc2b2ae35, 0x27d4eb2d, 0x165667b1,
 ] as const;
+
+export function normalisePhiloxRounds3072(rounds: number): number {
+  return Math.min(64, Math.max(1, Math.floor(Number.isFinite(rounds) ? rounds : 32)));
+}
 
 function mulhilo(a: number, b: number): [number, number] {
   const ah = (a >>> 16) & 0xffff;
@@ -36,7 +40,7 @@ export function philox96x32(
   rounds = 32,
 ): void {
   if (out.length < 96) throw new Error('Out array must have a length of at least 96');
-  if (seed.length < 96) throw new Error('Seed3072 must have a length of 96');
+  if (seed.length !== 96) throw new Error('Seed3072 must have a length of exactly 96');
 
   // Initialize state words from counters and seed
   out[0] = counterLow >>> 0;
@@ -45,8 +49,10 @@ export function philox96x32(
     out[i] = seed[i]! >>> 0;
   }
 
+  const rCount = normalisePhiloxRounds3072(rounds);
+
   // Feistel mixing rounds with full cross-word diffusion
-  for (let r = 0; r < rounds; r++) {
+  for (let r = 0; r < rCount; r++) {
     const c0 = PHILOX_CONSTANTS[r % 8]!;
     const c1 = PHILOX_CONSTANTS[(r + 1) % 8]!;
 

@@ -17,16 +17,14 @@ export function randomSeed3072(): Seed3072 {
   if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
     crypto.getRandomValues(seed);
   } else {
-    for (let i = 0; i < 96; i++) {
-      seed[i] = Math.floor(Math.random() * 0x100000000) >>> 0;
-    }
+    throw new Error('Web Crypto API (crypto.getRandomValues) is required for secure seed generation');
   }
   return seed;
 }
 
 export function seed3072FromHex(hex: string): Seed3072 {
-  const clean = hex.trim().replace(/^0x/i, '').padStart(768, '0');
-  if (!/^[0-9a-fA-F]{768}$/.test(clean)) {
+  const clean = hex.trim().replace(/^0x/i, '');
+  if (clean.length !== 768 || !/^[0-9a-fA-F]{768}$/.test(clean)) {
     throw new Error('Seed3072 hex string must be exactly 768 hexadecimal characters');
   }
   const seed = new Uint32Array(96);

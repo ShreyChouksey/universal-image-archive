@@ -65,6 +65,7 @@ import { generateSplatScene, sampleGaussianSplat } from './core/splat';
 import { mintZkPlateClaim, verifyZkPlateClaim } from './core/zkPlate';
 import { createWebXRManager } from './gpu/webxr';
 import { createP2PMeshNode } from './core/p2pMesh';
+import { mountProtocolObservatory } from './ui/protocolObservatory';
 
 declare global {
   interface Window {
@@ -1811,6 +1812,7 @@ function setPlaying(on: boolean): void {
 
 async function boot(): Promise<void> {
   readUrl();
+  mountProtocolObservatory();
 
   const canvas = $<HTMLCanvasElement>('canvas');
   try {
@@ -2082,7 +2084,7 @@ async function boot(): Promise<void> {
   $('telemetryBackdrop')?.addEventListener('click', closeTelemetry);
 
   // Drawer
-  document.querySelectorAll<HTMLElement>('.tab').forEach((tab) => {
+  document.querySelectorAll<HTMLElement>('.tab[data-drawer]').forEach((tab) => {
     tab.addEventListener('click', () => {
       const panel = tab.dataset.drawer!;
       const isOpen = tab.getAttribute('aria-expanded') === 'true';
@@ -2189,21 +2191,11 @@ async function boot(): Promise<void> {
 
   // Keyboard
   window.addEventListener('keydown', (e) => {
+    if (document.body.dataset.protocolOpen === 'true') return;
     const target = e.target as HTMLElement;
-    if (target.matches('input, select, textarea')) {
+    if (target.closest('input, select, textarea, button, a, summary, [contenteditable="true"]')) {
       if (e.key === 'Escape') target.blur();
       return;
-    }
-    // A button keeps focus after it is clicked. Steer Space to toggle Traverse
-    // instead of re-triggering the focused button.
-    if (target.matches('button')) {
-      if (e.key === ' ') {
-        e.preventDefault();
-        target.blur();
-        setPlaying(!state.playing);
-        return;
-      }
-      if (e.key === 'Enter') return;
     }
 
     // Interactive Option / Alt shortcuts: Option+G (Freeze Entropy), Option+A, Option+S, Option+D, Option+F, Option+C
@@ -2278,6 +2270,7 @@ async function boot(): Promise<void> {
       generateSplatScene,
       sampleGaussianSplat,
     },
+    // Experimental v0 demo provenance helper (not a production ZK proof system)
     zkPlate: {
       mintZkPlateClaim,
       verifyZkPlateClaim,

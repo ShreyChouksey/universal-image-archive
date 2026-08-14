@@ -1,13 +1,14 @@
 /**
  * WebGPU 3,072-Bit Compute Shader Acceleration Core (Layer 0).
  *
- * Parallelizes 96-word Philox96x32 evaluation across WebGPU compute workgroups,
- * rendering 8x8 48-bit grid pixel payloads from 3,072-bit seeds in < 0.1 ms.
+ * Parallelizes 96-word Philox96x32 evaluation across WebGPU compute workgroups.
+ * Performance and capacity depend on the selected adapter and format.
  */
 
 import type { ArchiveFormat } from '../core/format';
 import type { Seed3072 } from '../core/seed3072';
 import { pixelCount } from '../core/format';
+import { normalisePhiloxRounds3072 } from '../core/philox96';
 
 export const COMPUTE_3072_WGSL = /* wgsl */ `
 struct Params {
@@ -21,8 +22,10 @@ struct Params {
 @group(0) @binding(1) var<storage, read> seedBuffer: array<u32>;
 @group(0) @binding(2) var<storage, read_write> outputBuffer: array<u32>;
 
-const C0: u32 = 0xd2511f53u;
-const C1: u32 = 0xcd9e8d57u;
+const PHILOX_CONSTANTS = array<u32, 8>(
+  0xd2511f53u, 0xcd9e8d57u, 0x9e3779b9u, 0xbb67ae85u,
+  0x85ebca6bu, 0xc2b2ae35u, 0x27d4eb2du, 0x165667b1u
+);
 
 fn mulhilo(a: u32, b: u32) -> vec2<u32> {
   let ah = a >> 16u;
@@ -30,19 +33,21 @@ fn mulhilo(a: u32, b: u32) -> vec2<u32> {
   let bh = b >> 16u;
   let bl = b & 0xffffu;
   let albl = al * bl;
-  let mid = ah * bl + al * bh + (albl >> 16u);
-  let hi = ah * bh + (mid >> 16u);
-  let lo = ((mid & 0xffffu) << 16u) + (albl & 0xffffu);
+  let w1 = ah * bl + (albl >> 16u);
+  let w2 = al * bh + (w1 & 0xffffu);
+  let hi = ah * bh + (w1 >> 16u) + (w2 >> 16u);
+  let lo = ((w2 & 0xffffu) << 16u) | (albl & 0xffffu);
   return vec2<u32>(hi, lo);
 }
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
-  let idx = global_id.x;
-  let total = params.width * params.height;
-  if (idx >= total) {
+  let x = global_id.x;
+  let y = global_id.y;
+  if (x >= params.width || y >= params.height) {
     return;
   }
+  let idx = y * params.width + x;
 
   var state: array<u32, 96>;
   state[0] = idx;
@@ -53,10 +58,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
   let rounds = min(64u, max(1u, params.rounds));
   for (var r = 0u; r < rounds; r = r + 1u) {
+    let c0 = PHILOX_CONSTANTS[r % 8u];
+    let c1 = PHILOX_CONSTANTS[(r + 1u) % 8u];
     for (var i = 0u; i < 96u; i = i + 2u) {
       let src = (i + r * 3u) % 96u;
-      let p = mulhilo(C0, state[i]);
-      let k = seedBuffer[src] ^ (seedBuffer[(src + 1u) % 96u] * 0x9e3779b9u) ^ (C1 + r);
+      let p = mulhilo(c0, state[i]);
+      let k = seedBuffer[src] ^ (seedBuffer[(src + 1u) % 96u] * 0x9e3779b9u) ^ (c1 + r);
       let next_idx = (i + 1u) % 96u;
       state[i] = p.y ^ state[next_idx] ^ k;
       state[next_idx] = p.x ^ state[(i + 3u) % 96u];
@@ -77,7 +84,7 @@ export interface WebGPUComputeEngine3072 {
 }
 
 export async function createComputeEngine3072(): Promise<WebGPUComputeEngine3072> {
-  if (!('gpu' in navigator) || !navigator.gpu) {
+  if (typeof navigator === 'undefined' || !('gpu' in navigator) || !navigator.gpu) {
     return { supported: false, materialise: async () => null, dispose: () => {} };
   }
 
@@ -89,18 +96,24 @@ export async function createComputeEngine3072(): Promise<WebGPUComputeEngine3072
   }
   if (!adapter) return { supported: false, materialise: async () => null, dispose: () => {} };
 
-  const device = await adapter.requestDevice().catch(() => null);
+  const device = await adapter.requestDevice({
+    requiredLimits: {
+      maxBufferSize: adapter.limits.maxBufferSize,
+      maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
+    },
+  }).catch(() => null);
   if (!device) return { supported: false, materialise: async () => null, dispose: () => {} };
 
   let pipeline: GPUComputePipeline | null = null;
   try {
     const module = device.createShaderModule({ code: COMPUTE_3072_WGSL, label: 'uiaCompute3072' });
-    pipeline = device.createComputePipeline({
+    pipeline = await device.createComputePipelineAsync({
       label: 'uiaComputePipeline3072',
       layout: 'auto',
       compute: { module, entryPoint: 'main' },
     });
   } catch {
+    device.destroy();
     return { supported: false, materialise: async () => null, dispose: () => {} };
   }
 
@@ -110,10 +123,24 @@ export async function createComputeEngine3072(): Promise<WebGPUComputeEngine3072
       if (!device || !pipeline) return null;
       if (seed.length !== 96) return null;
 
+      const width = format.resolution.width;
+      const height = format.resolution.height;
+      if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) return null;
+      const validDepth = (format.depth.bpc === 8 && format.depth.bytesPerPixel === 3)
+        || (format.depth.bpc === 16 && format.depth.bytesPerPixel === 6);
+      if (!validDepth) return null;
       const total = pixelCount(format);
+      if (!Number.isSafeInteger(total) || total > 0xffff_ffff) return null;
       const bpp = format.depth.bytesPerPixel;
       const totalBytes = total * bpp;
       const storageByteSize = total * 3 * 4;
+      const dispatchX = Math.ceil(width / 64);
+      const dispatchY = height;
+      const maxDispatch = device.limits.maxComputeWorkgroupsPerDimension;
+
+      if (dispatchX > maxDispatch || dispatchY > maxDispatch) return null;
+      if (storageByteSize > device.limits.maxBufferSize) return null;
+      if (storageByteSize > device.limits.maxStorageBufferBindingSize) return null;
 
       let paramsBuffer: GPUBuffer | null = null;
       let seedBuffer: GPUBuffer | null = null;
@@ -125,7 +152,7 @@ export async function createComputeEngine3072(): Promise<WebGPUComputeEngine3072
           format.resolution.width,
           format.resolution.height,
           format.depth.bpc,
-          rounds,
+          normalisePhiloxRounds3072(rounds),
         ]);
 
         paramsBuffer = device.createBuffer({
@@ -163,7 +190,7 @@ export async function createComputeEngine3072(): Promise<WebGPUComputeEngine3072
         const pass = encoder.beginComputePass();
         pass.setPipeline(pipeline);
         pass.setBindGroup(0, bindGroup);
-        pass.dispatchWorkgroups(Math.ceil(total / 64));
+        pass.dispatchWorkgroups(dispatchX, dispatchY);
         pass.end();
 
         encoder.copyBufferToBuffer(storageBuffer, 0, readbackBuffer, 0, storageByteSize);

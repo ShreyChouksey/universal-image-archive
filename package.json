@@ -11,10 +11,13 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import ./test/register.mjs --test test/engine.test.ts",
     "test:browser": "playwright test",
+    "test:browser:harness": "playwright test test/browser/harness.spec.ts",
+    "typecheck:browser": "tsc --noEmit -p tsconfig.browser.json",
     "check": "npm run typecheck && npm test"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
+    "@types/node": "^24.13.3",
     "@webgpu/types": "^0.1.60",
     "typescript": "^5.9.2",
     "vite": "^7.1.3"

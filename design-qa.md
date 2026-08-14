@@ -86,3 +86,31 @@ The final browser capture was performed at 1280 × 720. The ≤1180 px, ≤960 p
   verify the truth of hand-authored evidence citations.
 - Build and runtime-interaction observations from the original review were
   in-session observations, not a durable repository verification record.
+
+## M2 integration evidence — 2026-08-14
+
+This section records the reconciled integration tree; it does not replace the
+scope boundary above or advance a Protocol gate.
+
+- Application typecheck: passed.
+- Browser-suite typecheck: passed.
+- Production build: passed (27 transformed modules).
+- Engine command: 142 registered tests passed, 0 failed. The known thin or
+  vacuous tests listed in `docs/protocol/CORRECTIONS.md` remain coverage gaps.
+- Canonical Chromium address-identity suite: 3 passed, 0 failed. It covers the
+  browser harness plus generated and imported 2 × 2 restore/export identity
+  paths.
+- Before retirement, all five discovered browser files were run unmodified:
+  the three canonical tests passed and the two AG duplicates failed. One
+  duplicate constructed and parsed a 16-byte UIA2 header even though UIA2 uses a
+  20-byte header; the other observed an empty IndexedDB record before export.
+  Their source remains in checkpoint `4e63490`; raw run metadata and error
+  contexts remain in the verified M2 evidence archive and dirty-tree backup.
+  They are not counted as independent M1 failures.
+- The rendered `http://127.0.0.1:5273/` Observatory showed `NOT PRODUCTION`,
+  0/11 passed/current gates, 84 obligations across 12 systems, and 15 open
+  decisions. Map, Matrix, Decisions, system/search/reset filtering, selected
+  obligation detail, modal close/return state, and Search/Address/Plate/Keys/
+  About drawers were exercised. Share is an action, not a drawer.
+- A later attempt to inspect developer logs was refused by the browser control
+  policy. Therefore this M2 pass makes no fresh zero-console-error claim.

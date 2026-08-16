@@ -205,6 +205,25 @@ register; each is a governance or product call this ledger cannot make.
    `pull_request` and `workflow_dispatch`. Recommended by the M3 audit; not applied, because it
    changes the deployment path and is the founder's call.
 
+**Next goal (planned 2026-08-16, not started): M4 — gate deployment on the
+browser characterization suite.** M0–M3 are complete and cited by SHA
+(`2830091`, `18fabae`, `b52d96d`, `ad60742`, `52af539`, `9757201`, `3b184a8`).
+The audit's publication precondition (b) — the browser gate as a required
+prerequisite of the deployment path — is the remaining agent-doable step
+before the founder can publish the P0 fix. Facts the goal is designed around,
+verified on 2026-08-16: `git ls-tree main .github/workflows/` lists only
+`deploy.yml`, so `browser-characterization.yml` is unregistered on GitHub and
+cannot be `workflow_dispatch`ed on the branch — the first CI observation must
+come from a `pull_request` run after a founder push; no Docker daemon is
+available locally, so the Linux runner cannot be rehearsed here; the Playwright
+reporter is `list` only, so `playwright-report/` is never produced. Planned
+shape: `browser-characterization.yml` gains `workflow_call` and a failure
+upload of `test-results/`; `deploy.yml` gains a `browser-gate` job that
+`deploy` needs alongside `build`, fail-closed, `contents: read` only. Evidence
+ceiling before a founder push: "wired; unobserved on GitHub". No test, config,
+engine, or Protocol status change. Executor and auditor to be assigned by the
+founder; measured results land in an M4/M4c pair on the M3b/M3c pattern.
+
 The treatment of the application provenance vocabulary (`derived`/`opaque`,
 `OpaqueSource`) is decided only by the accepted D-002 ADR; it is recorded as a
 non-resolving input in `open-decisions.md` and requires no separate

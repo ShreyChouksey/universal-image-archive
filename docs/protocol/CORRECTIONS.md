@@ -173,7 +173,7 @@ Recorded so that later work does not mistake a shortcut for a policy.
 | `test/browser/imported_address.spec.ts`, `test/browser/restored_address.spec.ts` (AG duplicate specs) | Quarantine in-tree with `test.fixme` and a written reason after the failing run | Both files deleted in merge `b52d96d`; sources recoverable only with `git show 4e63490:test/browser/<name>`; raw failure contexts preserved outside the repository (see backup row). Defects not disputed: 16-byte header fixture against the real 20-byte UIA2 header (`test/browser/support/archive.ts:6`, `src/core/address.ts:443`) and an IndexedDB record read before export. Not a finding against the M1 assertions those specs duplicated. | known-open; awaiting founder disposition — restore both as `test.fixme` at `4e63490` content, or ratify retirement in writing | QUARANTINED |
 | Git notes on corrected commits | Notes expected on more of the 8 corrected commits | Local notes on 2 of 8 (`89a51ce`, `8f74ed2`); none on `2830091`, `18fabae`, `4e63490`, `b52d96d`, `ad60742`; `refs/notes/commits` unpublished. The tracked table above is authoritative; the absence of a note reinstates nothing. | known-open; optional duplication | QUARANTINED |
 | Commit `18fabae` (M1) | Commit body naming measured results | One-line message, no body; evidence lives in `test/browser/README.md` and the `b52d96d` merge body. | known-open; record only | QUARANTINED |
-| `.github/workflows/browser-characterization.yml` | CI execution of the address-identity gate | Triggers only `pull_request` and `workflow_dispatch`; branch unpushed, so the workflow has never executed on GitHub. All browser results in this ledger are local runs. | known-open; CI evidence absent | QUARANTINED |
+| `.github/workflows/browser-characterization.yml` | CI execution of the address-identity gate | Triggers `pull_request`, `workflow_dispatch`, and — from the M4 commit — `workflow_call`, called by `deploy.yml` job `browser-gate` (SHA in the M4 entry). The branch is unpushed, so the workflow has still never executed on GitHub; all browser results in this ledger are local runs. | known-open; CI evidence absent | QUARANTINED |
 | Browser console / GPU probe | Fresh capture at M2 closeout | Browser control refused; the recorded browser evidence is the 3-test Chromium suite result and the M0/M1 committed artifacts only. | known-open | QUARANTINED |
 | `src/core/zkPlate.ts` | Removal, rename, or quarantine outside the shipping closure | Remains in `src/main.ts`'s import closure (`src/main.ts:65`, `window.UIA_FRONTIER.zkPlate` at `src/main.ts:2546-2550`) with corrected comments and unchanged bespoke 128-bit rolling-checksum behaviour and legacy `verified: true` flag; tracked by Observatory item `auth-legacy-transcripts` (experimental) and D-009. Root `index.html` carries no forbidden vocabulary. | known-open; awaiting founder disposition — remove, rename, quarantine, or retain with labelling | SHIPS |
 | Auditor-reported uniqueness percentages and dead-bit counts (session-only) | Cited as measured evidence | No fixture, script, or output file exists in the repository or in Git notes at `ad60742`; the values cannot be reproduced and are not restated here. Divergent values across auditors remain unresolved. | not citable; re-derive from a committed script before any future use | QUARANTINED |
@@ -198,14 +198,16 @@ register; each is a governance or product call this ledger cannot make.
    and push; no agent may do this. Whether to publish the protocol documents
    in the same push is a separate choice.
 4. Whether the browser characterization gate becomes a required prerequisite
-   of `.github/workflows/deploy.yml` (or of merging to `main`) before any
-   publication. Today `deploy.yml` runs on push to `main` and already runs
-   `npm ci`, `npm test` (engine suite), and `npm run build`; only the browser
-   suite is missing from it, and the gate workflow triggers only on
-   `pull_request` and `workflow_dispatch`. Recommended by the M3 audit; not applied, because it
-   changes the deployment path and is the founder's call.
+   of deployment. Applied as a **proposal** on branch `agent/ag-3072-protocol`
+   at the M4 commit (SHA in the M4 entry): `browser-characterization.yml`
+   gains `workflow_call`; `deploy.yml` gains job `browser-gate` that `deploy`
+   needs alongside `build`, fail-closed, `contents: read` only. It takes effect
+   only if `main` receives that commit; the founder accepts by merging or
+   declines by reverting it. It has not executed on GitHub. Whether the gate is
+   also made a required status check for merging to `main` is a
+   repository-settings change no agent can make and remains open.
 
-**Next goal (planned 2026-08-16, not started): M4 — gate deployment on the
+**Next goal (planned 2026-08-16; executed the same day, see the M4 entry below): M4 — gate deployment on the
 browser characterization suite.** M0–M3 are complete and cited by SHA
 (`2830091`, `18fabae`, `b52d96d`, `ad60742`, `52af539`, `9757201`, `3b184a8`).
 The audit's publication precondition (b) — the browser gate as a required
@@ -432,3 +434,79 @@ decision recorded under "Founder dispositions required".
 
 No Protocol Observatory status, gate, decision, or measured count changes as a
 result of this entry.
+
+## M4 — Gate deployment on the browser characterization suite (recorded 2026-08-16)
+
+Scope: two workflow files and this ledger. No test, spec, fixture, or Playwright
+config content changed; no `src/` file; no engine module; no Observatory
+status, gate, decision, or count. This entry advances nothing in the protocol;
+it records a wiring change and the offline checks that were possible.
+
+**Commit:** recorded in the M4c line below (a commit cannot contain its own
+SHA; M3b/M3c pattern). Start of work: `8c344c5`, clean tree, `main` =
+`origin/main` = `7af2394`, `git ls-tree main .github/workflows/` = `deploy.yml`
+only.
+
+**Why.** The M3 audit's publication precondition (b): the browser gate must be
+incorporated into, or made a required prerequisite of, the deployment path.
+Before M4, `deploy.yml` ran `npm ci`, `npm test`, `npm run build`, then
+deployed; the browser workflow triggered only on `pull_request` and
+`workflow_dispatch` and had never executed on GitHub.
+
+**What changed.**
+
+`.github/workflows/browser-characterization.yml` — `on:` gains `workflow_call:`
+(alongside `pull_request:` and `workflow_dispatch:`); `timeout-minutes` 10 → 15
+(cold first run: no npm cache, apt + browser download, typecheck, 11 serial
+tests; a job-timeout kill is a cancel with no failure artifact); a final step
+`if: failure()` → `actions/upload-artifact@v4` with `name: playwright-traces`,
+`path: test-results/`, `if-no-files-found: ignore`, `retention-days: 14`. The
+reporter is `list` only, so `playwright-report/` is never produced and is not
+uploaded. No test command changed. `permissions: contents: read` unchanged.
+Name unchanged.
+
+`.github/workflows/deploy.yml` — new job:
+
+```yaml
+  browser-gate:
+    uses: ./.github/workflows/browser-characterization.yml
+    permissions:
+      contents: read
+```
+
+and `deploy.needs` changes from `build` to `[build, browser-gate]`. The `build`
+job is byte-identical to `8c344c5` (verified by diff). Top-level `permissions`
+and `concurrency` unchanged. The gate runs in parallel with `build`; `deploy`
+cannot start unless both succeed. No `continue-on-error`, no `if:` on
+`browser-gate` or `deploy`. Job-level `permissions: contents: read` on the
+`uses:` job strips `pages: write` / `id-token: write` from the gate.
+
+**Offline checks that ran (this machine, working tree above `8c344c5`):**
+
+```sh
+ruby -ryaml -e 'YAML.load_file(".github/workflows/deploy.yml"); YAML.load_file(".github/workflows/browser-characterization.yml"); puts "yaml ok"'
+#  yaml ok; deploy jobs: browser-gate,build,deploy; browser-gate keys: uses,permissions;
+#  deploy.needs: ["build","browser-gate"]; gate on: pull_request,workflow_dispatch,workflow_call;
+#  gate timeout-minutes: 15; gate steps: 7
+which actionlint    # ABSENT — actionlint was NOT run; the reusable-workflow call,
+                    # the allowed key set on the uses: job, and the local path are
+                    # verified only by the first GitHub run
+diff <build job at 8c344c5> <build job now>   # identical
+git diff --name-only    # .github/workflows/browser-characterization.yml, .github/workflows/deploy.yml
+```
+
+**Stated plainly.** CI execution is pending a founder push. Nothing here has
+run on GitHub. `browser-characterization.yml` is not on `main`, so it is
+unregistered: it cannot be started with `workflow_dispatch` on the branch. The
+first CI observation path is founder-only: push the branch (disposition 3 —
+publishes every commit on it), open a pull request to `main` (the
+`pull_request` trigger needs no registration; `deploy.yml` has no
+`pull_request` trigger, so nothing deploys), read the run. That proves the
+standalone mode only; the `workflow_call` edge from `deploy.yml` is first
+exercised on the first push to `main`, and if that edge fails, deploy fails
+closed and Pages keeps its previous deployment. Green → the founder may
+merge/fast-forward `main`. Red → the `playwright-traces` artifact is the next
+goal's evidence; do not merge. No Docker daemon on the development machine, so
+the Linux runner was not rehearsed locally.
+
+**Measured numbers for the committed tree are recorded in the M4c line below.**

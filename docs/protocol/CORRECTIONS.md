@@ -509,4 +509,22 @@ merge/fast-forward `main`. Red → the `playwright-traces` artifact is the next
 goal's evidence; do not merge. No Docker daemon on the development machine, so
 the Linux runner was not rehearsed locally.
 
-**Measured numbers for the committed tree are recorded in the M4c line below.**
+**M4c — commit `b618c5f`, measured 2026-08-16.** `git diff --name-only
+8c344c5..b618c5f` = `.github/workflows/browser-characterization.yml`,
+`.github/workflows/deploy.yml`, `docs/protocol/CORRECTIONS.md`. Cold-run at
+`b618c5f` with `git status --porcelain` empty:
+
+```sh
+npx tsc --noEmit                              # exit 0
+npx tsc --noEmit -p tsconfig.browser.json     # exit 0
+npm test                                      # 142 tests, 142 pass, 0 fail
+npm run build                                 # 27 modules transformed
+npx playwright test                           # 11 passed (5 spec files) — committed config,
+                                              # port 4173 free on this machine; no override used
+git diff 7af2394 --stat -- <ten engine paths> # prints nothing
+node … validateProtocolProgressModel          # 0 84 0 15 12 11
+```
+
+Still true after M4c: nothing has run on GitHub; nothing is pushed; `main` =
+`origin/main` = `7af2394`. The next observation of this gate can only come from
+the founder's push and pull request (M4 entry, "Stated plainly").

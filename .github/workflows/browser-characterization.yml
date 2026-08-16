@@ -1,4 +1,4 @@
-name: Address identity browser gate
+name: Browser characterization gate
 
 on:
   pull_request:

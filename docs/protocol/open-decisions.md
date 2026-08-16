@@ -27,6 +27,21 @@ protocol decisions. `OPEN` means implementation MUST NOT assume an answer.
 | D-014 | Privacy, public metadata, encrypted content, retention, takedown, revocation, and availability policy | OPEN | Product semantics, storage |
 | D-015 | Research-rail promotion criteria, reviewers, minimum observation period, attack policy, and activation process | OPEN | Any use of wide-state research |
 
+## Inputs on file (non-resolving)
+
+An input is a measured fact or constraint made available to a resolving ADR.
+Listing an input selects no option, imposes no requirement on the ADR, changes
+no status, and narrows no decision. Every decision above remains `OPEN`;
+resolution still requires an accepted ADR. Rows were recorded after `ad60742`
+against sources measured at that revision.
+
+| Decision | Input | Source | Measured against |
+|---|---|---|---|
+| D-002 | The archive application distinguishes a `derived` active address (recomputable from generator `uia-philox4x32-image` version 1, a four-word seed, a round count in 12–24, and a signed total offset) from an `opaque` one (exact bytes only, with a declared source `file`, `search`, `plate`, or `exact-link`), persisting both with identical bytes and format. Baseline `7af2394` already held a runtime-only `seed | foreign` provenance and persisted bytes, hex, and format metadata (resolution, depth, geometry) but no provenance; on restore that runtime state was not re-established, so restore/export replaced restored bytes with a materialised seed (`2830091`, red); `18fabae` made the distinction explicit, versioned, and fail-closed. Whether protocol artifact identity binds bytes and format only, or also this derivation or provenance record, is part of “their relationship” and is unresolved. | `src/core/activeAddressSnapshot.ts:25-52`; commits `2830091` (red), `18fabae` (fix); `test/browser/README.md` | `ad60742` (M2 checkpoint) |
+| D-002 | The `.uia` file encodes and round-trips exact bytes and format only; it carries no provenance and provides no authenticity or cryptographic-integrity proof of either. Two exports of identical bytes from different provenance are indistinguishable as files. | `src/core/activeAddressSnapshot.ts:4-6`; `test/browser/support/archive.ts:6` (20-byte UIA2 header) | `ad60742` (M2 checkpoint) |
+| D-002 | Integer stepping or a flushed offset on a persistable opaque address changes its bytes but leaves its declared source and label unchanged; whether such an address is still “from” that file, search, or plate, or has become a new derived artifact, is unresolved. | `src/main.ts:1043-1063` (`applyStep`), `src/main.ts:286-307` (`flushOffset`) | `ad60742` (M2 checkpoint) |
+| D-002 | Bytes restored from a pre-M1 record carry runtime-only `legacy-unknown` provenance: viewable and exportable, never persisted or stepped, never rewritten as a declared source. Whether an identity profile classifies such bytes, and how, is unresolved. The application treats an opaque address's `returnSeed` as a navigation return point, not as identity. | `src/core/activeAddressSnapshot.ts:41, 83-88, 204-225`; `test/browser/restored-imported-address.spec.ts` | `ad60742` (M2 checkpoint) |
+
 ## Required decision record format
 
 When resolving an item, its ADR MUST state:

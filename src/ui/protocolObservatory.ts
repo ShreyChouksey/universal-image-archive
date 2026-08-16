@@ -10,7 +10,37 @@ import {
   type ProtocolWorkItem,
 } from '../core/protocolProgress';
 
-type ObservatoryView = 'map' | 'matrix' | 'decisions';
+export type ObservatoryView = 'map' | 'matrix' | 'decisions';
+
+const OBSERVATORY_VIEWS: readonly ObservatoryView[] = ['map', 'matrix', 'decisions'];
+
+/** Parse a persisted view name; anything unknown falls back to null so the caller keeps its default. */
+export function parseObservatoryView(value: string | null | undefined): ObservatoryView | null {
+  return OBSERVATORY_VIEWS.find((view) => view === value) ?? null;
+}
+
+/**
+ * Handle returned by mountProtocolObservatory so the shell can restore the
+ * panel from the URL and mirror its open/close/view state back into the URL.
+ * The Observatory never writes location itself; syncUrl in main.ts is the
+ * single writer, and onStateChange is how it learns something changed.
+ *
+ * `silent` suppresses onStateChange for one call. The shell uses it during
+ * boot, when the hash must stay untouched until the address restore has read
+ * it, and during route reconciliation, where the URL is already the truth.
+ * open() and close() are both idempotent: calling either in the state it
+ * already produces changes nothing and notifies nobody.
+ */
+export interface ProtocolObservatoryHandle {
+  readonly open: (view?: ObservatoryView, options?: { readonly silent?: boolean }) => void;
+  readonly close: (options?: { readonly silent?: boolean }) => void;
+  readonly isOpen: () => boolean;
+  readonly view: () => ObservatoryView;
+}
+
+export interface ProtocolObservatoryOptions {
+  readonly onStateChange?: () => void;
+}
 
 const byId = new Map(PROTOCOL_WORK_ITEMS.map((item) => [item.id, item]));
 const areaById = new Map(PROTOCOL_AREAS.map((area) => [area.id, area]));
@@ -44,11 +74,30 @@ function dependencyPressure(): ReadonlyArray<{ item: ProtocolWorkItem; count: nu
     .sort((a, b) => b.count - a.count || a.item.title.localeCompare(b.item.title));
 }
 
-export function mountProtocolObservatory(): void {
+export function mountProtocolObservatory(
+  options: ProtocolObservatoryOptions = {},
+): ProtocolObservatoryHandle | null {
   const root = document.getElementById('protocolObservatory');
   const trigger = document.getElementById('protocolOpen') as HTMLButtonElement | null;
-  if (!root || !trigger || root.dataset.mounted === 'true') return;
+  if (!root || !trigger || root.dataset.mounted === 'true') return null;
   root.dataset.mounted = 'true';
+  let currentView: ObservatoryView = 'map';
+  let muted = 0;
+  const notify = (): void => {
+    if (muted === 0) options.onStateChange?.();
+  };
+  const quietly = (silent: boolean | undefined, run: () => void): void => {
+    if (!silent) {
+      run();
+      return;
+    }
+    muted++;
+    try {
+      run();
+    } finally {
+      muted--;
+    }
+  };
 
   root.innerHTML = `
     <div class="protocol-observatory__backdrop" data-protocol-close></div>
@@ -173,6 +222,8 @@ export function mountProtocolObservatory(): void {
   root.querySelector<HTMLElement>('#protocolGateSummary')!.textContent = `${passedGates} / ${PROTOCOL_GATES.length}`;
 
   const setView = (view: ObservatoryView): void => {
+    const changed = view !== currentView;
+    currentView = view;
     root.querySelectorAll<HTMLElement>('[data-protocol-view]').forEach((button) => {
       const selected = button.dataset.protocolView === view;
       button.setAttribute('aria-selected', String(selected));
@@ -181,6 +232,7 @@ export function mountProtocolObservatory(): void {
     root.querySelectorAll<HTMLElement>('[data-protocol-panel]').forEach((panel) => {
       panel.hidden = panel.dataset.protocolPanel !== view;
     });
+    if (changed && !root.hidden) notify();
   };
 
   const renderAreas = (): void => {
@@ -476,42 +528,64 @@ export function mountProtocolObservatory(): void {
     renderDecisions();
   };
 
-  const close = (): void => {
-    root.hidden = true;
-    document.body.dataset.protocolOpen = 'false';
-    trigger.setAttribute('aria-expanded', 'false');
-    for (const node of backgroundNodes) {
-      const previous = backgroundState.get(node);
-      node.inert = previous?.inert ?? false;
-      if (previous?.ariaHidden === null || previous?.ariaHidden === undefined) {
-        node.removeAttribute('aria-hidden');
-      } else {
-        node.setAttribute('aria-hidden', previous.ariaHidden);
+  const close = (options: { readonly silent?: boolean } = {}): void => {
+    // Idempotent: closing an already-closed panel must not touch the
+    // background inert/aria-hidden bookkeeping, which may now belong to
+    // another modal, and must not report a change that did not happen.
+    if (root.hidden) return;
+    quietly(options.silent, () => {
+      root.hidden = true;
+      document.body.dataset.protocolOpen = 'false';
+      trigger.setAttribute('aria-expanded', 'false');
+      for (const node of backgroundNodes) {
+        const previous = backgroundState.get(node);
+        node.inert = previous?.inert ?? false;
+        if (previous?.ariaHidden === null || previous?.ariaHidden === undefined) {
+          node.removeAttribute('aria-hidden');
+        } else {
+          node.setAttribute('aria-hidden', previous.ariaHidden);
+        }
       }
-    }
-    backgroundState.clear();
-    returnFocus?.focus();
+      backgroundState.clear();
+      returnFocus?.focus();
+      notify();
+    });
   };
 
-  const open = (): void => {
-    returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : trigger;
-    for (const node of backgroundNodes) {
-      backgroundState.set(node, { ariaHidden: node.getAttribute('aria-hidden'), inert: node.inert });
-      node.inert = true;
-      node.setAttribute('aria-hidden', 'true');
-    }
-    root.hidden = false;
-    document.body.dataset.protocolOpen = 'true';
-    trigger.setAttribute('aria-expanded', 'true');
-    render();
-    search.focus();
+  const open = (view?: ObservatoryView, options: { readonly silent?: boolean } = {}): void => {
+    quietly(options.silent, () => {
+      if (!root.hidden) {
+        // Idempotent for the open state; only a differing view is applied.
+        if (view) setView(view);
+        return;
+      }
+      returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : trigger;
+      for (const node of backgroundNodes) {
+        backgroundState.set(node, { ariaHidden: node.getAttribute('aria-hidden'), inert: node.inert });
+        node.inert = true;
+        node.setAttribute('aria-hidden', 'true');
+      }
+      // Apply the view while still hidden so setView's own change report is
+      // folded into the single notify() below.
+      if (view) setView(view);
+      root.hidden = false;
+      document.body.dataset.protocolOpen = 'true';
+      trigger.setAttribute('aria-expanded', 'true');
+      // The evidence index is compiled into the build (protocolProgress.ts);
+      // re-rendering on open shows the current build's data, and a reload
+      // shows newer data only once a newer build is served. There is no live
+      // repository channel; #protocolSource names the revision on screen.
+      render();
+      search.focus();
+      notify();
+    });
   };
 
   trigger.setAttribute('aria-expanded', 'false');
   trigger.setAttribute('aria-controls', 'protocolObservatory');
   trigger.addEventListener('click', () => root.hidden ? open() : close());
-  root.querySelectorAll<HTMLElement>('[data-protocol-close]').forEach((node) => node.addEventListener('click', close));
-  root.querySelector<HTMLElement>('#protocolClose')!.addEventListener('click', close);
+  root.querySelectorAll<HTMLElement>('[data-protocol-close]').forEach((node) => node.addEventListener('click', () => close()));
+  root.querySelector<HTMLElement>('#protocolClose')!.addEventListener('click', () => close());
   root.querySelector<HTMLElement>('#protocolReset')!.addEventListener('click', () => {
     search.value = '';
     selectedArea = 'all';
@@ -565,4 +639,11 @@ export function mountProtocolObservatory(): void {
   });
 
   render();
+
+  return {
+    open,
+    close,
+    isOpen: () => !root.hidden,
+    view: () => currentView,
+  };
 }

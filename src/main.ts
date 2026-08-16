@@ -79,7 +79,11 @@ import {
   type OpaqueSource,
   type SeedWords,
 } from './core/activeAddressSnapshot';
-import { mountProtocolObservatory } from './ui/protocolObservatory';
+import {
+  mountProtocolObservatory,
+  parseObservatoryView,
+  type ProtocolObservatoryHandle,
+} from './ui/protocolObservatory';
 
 declare global {
   interface Window {
@@ -366,6 +370,8 @@ const escapeHtml = (text: string): string =>
 const client = new ArchiveClient();
 let renderer: Renderer;
 let stage: Stage;
+/** Protocol Observatory handle; null until mounted (or when its DOM is absent). */
+let observatory: ProtocolObservatoryHandle | null = null;
 /** Retained alongside the GPU copy so the loupe can read exact values in address mode. */
 let addressTexels: Uint16Array | null = null;
 let reader: Reader | null = null;
@@ -1241,7 +1247,82 @@ function syncUrl(): void {
   params.set('r', state.format.resolution.id);
   params.set('d', state.format.depth.id);
   if (state.rounds !== 12) params.set('n', String(state.rounds));
+  // Shell panel state rides in the same hash so a reload restores the view the
+  // user was in. `view=protocol` is the open Protocol Observatory; `pv` is its
+  // sub-view and is omitted for the default map.
+  if (observatory?.isOpen()) {
+    params.set('view', 'protocol');
+    const panelView = observatory.view();
+    if (panelView !== 'map') params.set('pv', panelView);
+  }
   history.replaceState(null, '', `#${params.toString()}`);
+}
+
+/*
+ * Three URL writers, kept apart on purpose:
+ *   URL  → panel : applyProtocolRouteFromHash — silent reconciliation. Never
+ *                  rewrites archive keys; may only normalise view/pv.
+ *   panel → URL  : syncProtocolRoute — the route-only writer. Edits view/pv in
+ *                  the hash as it currently is, preserving every other key
+ *                  (known or unknown), their order, and history.state.
+ *   archive → URL: syncUrl — the full permalink writer, driven by archive
+ *                  state; it emits view/pv from the panel so a reload keeps
+ *                  the panel, but is never triggered by the panel.
+ */
+
+/** True when a raw `key=value` hash segment names one of the panel's route keys. */
+function isProtocolRouteSegment(segment: string): boolean {
+  const rawKey = segment.split('=', 1)[0] ?? '';
+  let key: string;
+  try {
+    key = decodeURIComponent(rawKey.replace(/\+/g, ' '));
+  } catch {
+    return false; // malformed encoding is not ours; leave it alone
+  }
+  return key === 'view' || key === 'pv';
+}
+
+/**
+ * Panel → URL. Touches only `view` and `pv`; every other segment is kept
+ * byte-for-byte and in order — the hash is edited as raw segments, never
+ * re-serialised through URLSearchParams, so non-canonical or duplicate
+ * unknown parameters survive untouched. Route segments always trail. All
+ * existing view/pv segments (including duplicates) are replaced by one
+ * canonical pair, or removed when the panel is closed. history.state is
+ * preserved. Writes nothing when nothing changes.
+ */
+function syncProtocolRoute(): void {
+  if (!observatory) return;
+  const raw = location.hash.slice(1);
+  const kept = raw.split('&').filter((segment) => segment !== '' && !isProtocolRouteSegment(segment));
+  if (observatory.isOpen()) {
+    kept.push('view=protocol');
+    const panelView = observatory.view();
+    if (panelView !== 'map') kept.push(`pv=${panelView}`);
+  }
+  const after = kept.join('&');
+  if (after === raw) return;
+  history.replaceState(history.state, '', `#${after}`);
+}
+
+/**
+ * URL → panel. Idempotent and always silent: opening an open panel or closing
+ * a closed one is a no-op inside the handle, and no full-permalink write is
+ * ever triggered from here. Called at boot before the GPU is touched (so a
+ * renderer failure cannot strand a `view=protocol` link) and on hashchange /
+ * popstate. Afterwards only the panel keys are normalised — a malformed `pv`
+ * is dropped — through the route-only writer, so archive keys and unknown
+ * parameters are left exactly as found.
+ */
+function applyProtocolRouteFromHash(): void {
+  if (!observatory) return;
+  const params = new URLSearchParams(location.hash.slice(1));
+  if (params.get('view') === 'protocol') {
+    observatory.open(parseObservatoryView(params.get('pv')) ?? 'map', { silent: true });
+  } else {
+    observatory.close({ silent: true });
+  }
+  syncProtocolRoute();
 }
 
 function readUrl(): void {
@@ -2073,7 +2154,16 @@ function setPlaying(on: boolean): void {
 
 async function boot(): Promise<void> {
   readUrl();
-  mountProtocolObservatory();
+  // The Protocol Observatory is shell UI, not archive UI: mount and restore it
+  // from the hash before the GPU is touched, so a `view=protocol` link opens
+  // even when renderer creation fails below. Reconciliation is silent and the
+  // panel's own writes go through the route-only writer, so nothing here can
+  // rewrite the archive keys the address restore further down still has to
+  // read from the hash.
+  observatory = mountProtocolObservatory({ onStateChange: syncProtocolRoute });
+  applyProtocolRouteFromHash();
+  window.addEventListener('hashchange', applyProtocolRouteFromHash);
+  window.addEventListener('popstate', applyProtocolRouteFromHash);
 
   const canvas = $<HTMLCanvasElement>('canvas');
   try {

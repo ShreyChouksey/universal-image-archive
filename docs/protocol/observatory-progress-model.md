@@ -76,6 +76,25 @@ Every card must state:
 warranties. Independent clients must agree on rejecting adversarial objects and
 fork-identical behavior, not only happy-path interoperability.
 
+## Reproducibility and measured numbers
+
+Evidence recorded after checkpoint `ad60742` and cited by a card, a stage
+result, or the correction ledger must be reproducible by a named command or a
+cited source line from a committed revision cited by SHA, with the observed
+result recorded beside it. Cards whose evidence boundary still reads
+"revision: current working tree" predate this rule; they are not thereby
+wrong, and each is migrated to a SHA-cited entry the next time its evidence is
+touched rather than in one sweep. When a
+second party has reproduced a measurement cold from the same SHA, that
+reproduction is recorded beside it; it confirms the measurement and upgrades
+no status. When independent auditors report divergent values for one property,
+the divergence is recorded as unresolved and values are neither averaged nor
+selected; unfixtured numbers that appear in no repository file cannot be cited.
+Passing counts are run evidence and never raise a card. Working detail,
+including quarantine and integration rules, lives in
+[evidence-and-integration-discipline.md](./evidence-and-integration-discipline.md)
+(non-normative).
+
 ## Relationship to normative work
 
 Normative decisions remain in accepted ADRs and protocol specifications. The

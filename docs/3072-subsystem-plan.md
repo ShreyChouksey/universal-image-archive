@@ -22,6 +22,11 @@ be presented as providing post-quantum signatures, zero-knowledge proofs,
 cryptographic Merkle roots, ASIC resistance, verified WebRTC gossip, or secure
 transactions.
 
+`src/core/zkPlate.ts` is not part of this ten-module rail: it is imported by
+`src/main.ts` and ships with the archive (marked `SHIPS` in
+`docs/protocol/CORRECTIONS.md`), with corrected comments and unchanged
+experimental behaviour.
+
 The current code intentionally fails closed where the missing security boundary
 would otherwise authorize a transaction:
 

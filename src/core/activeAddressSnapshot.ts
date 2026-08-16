@@ -1,9 +1,10 @@
 /**
  * Canonical IndexedDB identity for the worker's active address buffer.
  *
- * This is deliberately not the .uia file format. A file proves exact bytes and
- * format; this snapshot additionally records how this browser obtained those
- * bytes so a reload never invents a seed recipe from ambient UI state.
+ * This is deliberately not the .uia file format. A file encodes and round-trips
+ * exact bytes and format and carries no authenticity or integrity proof; this
+ * snapshot additionally records how this browser obtained those bytes so a
+ * reload never invents a seed recipe from ambient UI state.
  */
 
 export const ACTIVE_ADDRESS_SNAPSHOT_VERSION = 1 as const;

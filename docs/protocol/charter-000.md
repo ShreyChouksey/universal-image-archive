@@ -196,6 +196,20 @@ The consensus header and body ADR follows those decisions. Prototype code may
 be tested and studied, but it MUST remain clearly experimental and fail closed
 at every missing authorization or consensus boundary.
 
+Evidence for any gate is recorded under the working policy in
+[evidence-and-integration-discipline.md](./evidence-and-integration-discipline.md)
+and the tracked ledger [CORRECTIONS.md](./CORRECTIONS.md); both are
+non-normative. Archive-application integrity evidence (address restore,
+export, and container parsing in the shipping archive) is application
+evidence. It MAY be cited as a narrow input to an Observatory card, but it
+MUST NOT be cited as evidence that any specification gate in this section has
+been met, that any Observatory planning stage (G0–G10 in
+[observatory-progress-model.md](./observatory-progress-model.md),
+non-normative) has passed, or that any decision D-001–D-015 is resolved,
+unless an accepted ADR explicitly adopts that evidence as satisfying a named
+criterion of that gate, stage, or decision; a mention is not an adoption.
+Passing test counts are run evidence, never coverage or security evidence.
+
 ## 9. References
 
 - [NIST FIPS 202: SHA-3 and SHAKE](https://doi.org/10.6028/NIST.FIPS.202)

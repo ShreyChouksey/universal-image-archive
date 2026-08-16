@@ -232,11 +232,33 @@ decision, or count changed. This entry advances nothing in the protocol;
 it records a measured working-tree state and the wording corrections applied
 after an independent audit.
 
-**Revision.** Written on the working tree above `ad60742` with the M3 changes
-uncommitted at the time of writing. A commit cannot contain its own SHA, so the
-rule is two-step: (M3b) commit the code and tests; (M3c) a follow-up commit
-replaces this line with `Commit: <M3b sha>` and records the cold-run results
-measured on that exact tree. Until M3c lands this entry is provisional.
+**Commit: `9757201` (M3b).** Tests committed first as `52af539` (M3a, =
+`ad60742` + `test/browser/protocol-route-isolation.spec.ts` only). Both on
+branch `agent/ag-3072-protocol`, committed by the founder on 2026-08-16. This
+paragraph is the M3c record: a commit cannot contain its own SHA, so the M3b
+commit body called this entry provisional and this follow-up names the SHA and
+the cold-run on that exact tree.
+
+Measured at `52af539` in a detached worktree (feature absent — `src/main.ts` is
+`ad60742`'s), `npx playwright test test/browser/protocol-route-isolation.spec.ts`:
+3 failed, 1 passed — the panel never opens on `hashchange` (`expect.poll(panelOpen)`
+false), a click writes no `view` (`Received: null`), the no-GPU deep link stays
+hidden (`toBeVisible` failed); the no-history test passes. This is the
+feature-absent red; the identity-overwrite red (`f0e0…` → `000102…`) was
+measured on the uncommitted first M3 draft, recorded under M3a below, and is
+not reproducible from any commit because that draft was never committed.
+
+Measured at `9757201` (clean tree, `git status --porcelain` empty), 2026-08-16:
+
+```sh
+npx tsc --noEmit                              # exit 0
+npx tsc --noEmit -p tsconfig.browser.json     # exit 0
+npm test                                      # 142 tests, 142 pass, 0 fail
+npm run build                                 # 27 modules transformed
+npx playwright test                           # 11 passed (5 spec files)  [port-4193 override, see below]
+git diff 7af2394 --stat -- <ten engine paths> # prints nothing
+node … validateProtocolProgressModel          # 0 84 0 15
+```
 
 **What changed (behaviour).** The open state and sub-view of the Protocol
 Observatory ride in the URL hash (`view=protocol`, `pv=<matrix|decisions>`,
@@ -324,7 +346,7 @@ served build's data; a reload shows newer data only once a newer build is
 served. `#protocolSource` names the evidence revision on screen. There is no
 live repository channel and none is claimed.
 
-**Commands run on this tree, with the result each printed:**
+**Commands run on the pre-commit working tree (superseded by the `9757201` record above; kept because the numbers matched):**
 
 ```sh
 npx tsc --noEmit                              # exit 0

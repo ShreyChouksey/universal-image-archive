@@ -63,7 +63,7 @@ export interface OpenProtocolDecision {
 }
 
 export const PROTOCOL_SOURCE_REVISION =
-  'Checkpoint evidence index · ADR-000 draft · Charter-000 draft v0.1 · ADR-001 proposed · evidence measured at ad60742 (M2 address-identity checkpoint; reproduced 2026-08-15)';
+  'Checkpoint evidence index · ADR-000 draft · Charter-000 draft v0.1 · ADR-001 proposed · evidence measured at ad60742 (M2 address-identity checkpoint; reproduced 2026-08-15) and 9757201 (M3 route isolation; cold-run 2026-08-16)';
 
 export const PROTOCOL_EVIDENCE_POLICY =
   'Every status is scoped to its cited artifact and current revision. A material upstream change makes dependent evidence stale; no badge is a security warranty. Evidence entries are hand-authored citations, not machine-verified results; no badge is produced by a test run. Archive-application integrity evidence (address restore/export identity, M0–M2) is application evidence: it may inform a card but is not evidence that any G0–G10 stage has passed.';

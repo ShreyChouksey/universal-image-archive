@@ -173,7 +173,7 @@ Recorded so that later work does not mistake a shortcut for a policy.
 | `test/browser/imported_address.spec.ts`, `test/browser/restored_address.spec.ts` (AG duplicate specs) | Quarantine in-tree with `test.fixme` and a written reason after the failing run | Both files deleted in merge `b52d96d`; sources recoverable only with `git show 4e63490:test/browser/<name>`; raw failure contexts preserved outside the repository (see backup row). Defects not disputed: 16-byte header fixture against the real 20-byte UIA2 header (`test/browser/support/archive.ts:6`, `src/core/address.ts:443`) and an IndexedDB record read before export. Not a finding against the M1 assertions those specs duplicated. | known-open; awaiting founder disposition — restore both as `test.fixme` at `4e63490` content, or ratify retirement in writing | QUARANTINED |
 | Git notes on corrected commits | Notes expected on more of the 8 corrected commits | Local notes on 2 of 8 (`89a51ce`, `8f74ed2`); none on `2830091`, `18fabae`, `4e63490`, `b52d96d`, `ad60742`; `refs/notes/commits` unpublished. The tracked table above is authoritative; the absence of a note reinstates nothing. | known-open; optional duplication | QUARANTINED |
 | Commit `18fabae` (M1) | Commit body naming measured results | One-line message, no body; evidence lives in `test/browser/README.md` and the `b52d96d` merge body. | known-open; record only | QUARANTINED |
-| `.github/workflows/browser-characterization.yml` | CI execution of the address-identity gate | Triggers `pull_request`, `workflow_dispatch`, and — from the M4 commit — `workflow_call`, called by `deploy.yml` job `browser-gate` (SHA in the M4 entry). The branch is unpushed, so the workflow has still never executed on GitHub; all browser results in this ledger are local runs. | known-open; CI evidence absent | QUARANTINED |
+| `.github/workflows/browser-characterization.yml` | CI execution of the address-identity gate | Triggers `pull_request`, `workflow_dispatch`, and — from the M4 commit — `workflow_call`, called by `deploy.yml` job `browser-gate` (SHA in the M4 entry). First standalone `pull_request` run observed 2026-08-16: success, https://github.com/ShreyChouksey/universal-image-archive/actions/runs/31954025398, head `a503023910294cc802152ba441631ee79a968119`; the `workflow_call` edge from `deploy.yml` remains unobserved. | known-open; standalone CI observed once; deploy edge unobserved | QUARANTINED |
 | Browser console / GPU probe | Fresh capture at M2 closeout | Browser control refused; the recorded browser evidence is the 3-test Chromium suite result and the M0/M1 committed artifacts only. | known-open | QUARANTINED |
 | `src/core/zkPlate.ts` | Removal, rename, or quarantine outside the shipping closure | Remains in `src/main.ts`'s import closure (`src/main.ts:65`, `window.UIA_FRONTIER.zkPlate` at `src/main.ts:2546-2550`) with corrected comments and unchanged bespoke 128-bit rolling-checksum behaviour and legacy `verified: true` flag; tracked by Observatory item `auth-legacy-transcripts` (experimental) and D-009. Root `index.html` carries no forbidden vocabulary. | known-open; awaiting founder disposition — remove, rename, quarantine, or retain with labelling | SHIPS |
 | Auditor-reported uniqueness percentages and dead-bit counts (session-only) | Cited as measured evidence | No fixture, script, or output file exists in the repository or in Git notes at `ad60742`; the values cannot be reproduced and are not restated here. Divergent values across auditors remain unresolved. | not citable; re-derive from a committed script before any future use | QUARANTINED |
@@ -205,7 +205,9 @@ register; each is a governance or product call this ledger cannot make.
    only if `main` receives that commit; the founder accepts by merging or
    declines by reverting it. It has not executed on GitHub. Whether the gate is
    also made a required status check for merging to `main` is a
-   repository-settings change no agent can make and remains open.
+   repository-settings change no agent can make and remains open; first
+   standalone run: success,
+   https://github.com/ShreyChouksey/universal-image-archive/actions/runs/31954025398.
 
 **Next goal (planned 2026-08-16; executed the same day, see the M4 entry below): M4 — gate deployment on the
 browser characterization suite.** M0–M3 are complete and cited by SHA
@@ -528,3 +530,68 @@ node … validateProtocolProgressModel          # 0 84 0 15 12 11
 Still true after M4c: nothing has run on GitHub; nothing is pushed; `main` =
 `origin/main` = `7af2394`. The next observation of this gate can only come from
 the founder's push and pull request (M4 entry, "Stated plainly").
+
+## M5 — First CI observation of the browser gate (recorded 2026-08-16)
+
+Scope: this ledger only. No test, config, workflow, `src/`, engine, or
+Observatory change. This entry advances nothing in the protocol; it records the
+first GitHub Actions observation of the standalone browser gate and keeps
+merge-readiness expectations separate from evidence.
+
+**Commit:** recorded in the M5c line below (a commit cannot contain its own SHA).
+
+**Observed.** PR [#1](https://github.com/ShreyChouksey/universal-image-archive/pull/1)
+is open, `MERGEABLE`, and `CLEAN`, with `headRefOid`
+`a503023910294cc802152ba441631ee79a968119`, `baseRefOid`
+`7af2394aa082a5083870e20784cc2ed51a89df40`, and test-merge commit
+`bff6bd32b8c841f5dce68e187b5b0227085f0740` (`refs/pull/1/merge`). GitHub
+Actions run
+[31954025398](https://github.com/ShreyChouksey/universal-image-archive/actions/runs/31954025398)
+reports `event: pull_request`,
+`headSha: a503023910294cc802152ba441631ee79a968119`, and
+`conclusion: success`; check `browser-characterization` and every substantive
+job step succeeded. Runner Image `ubuntu-24.04` / Version `20260810.271.1`.
+The install log reports:
+
+```text
+Chrome Headless Shell 151.0.7922.34 (playwright chromium-headless-shell v1234) downloaded to /home/runner/.cache/ms-playwright/chromium_headless_shell-1234
+```
+
+Playwright's reporter lines were:
+
+```text
+Running 11 tests using 1 worker
+  11 passed (25.2s)
+```
+
+The observed suite was **11 tests / 5 files**: `harness` (1),
+`protocol-panel-restore` (4), `protocol-route-isolation` (4),
+`restored-generated-address` (1), and `restored-imported-address` (1).
+
+**Stated plainly.** Standalone `pull_request` mode observed; the `workflow_call`
+edge from `deploy.yml` is unexercised until the first push to `main`. Because
+the measured base remained `7af2394aa082a5083870e20784cc2ed51a89df40` and the
+PR-head and test-merge commits both report tree
+`3b9c0831f13d9abe11ee352d701eed8bd770ff0f`, the test-merge tree was identical
+to the PR-head tree.
+
+**Merge-readiness (expectation, not evidence).** The founder may choose (A) a
+merge commit with
+`gh pr merge 1 --merge --match-head-commit a503023910294cc802152ba441631ee79a968119`,
+or (B) fetch, check out `main`, fast-forward it to local
+`agent/ag-3072-protocol`, and push `main`. Do not squash or rebase: those
+methods rewrite the cited lineage. All three GitHub merge methods are enabled,
+so no settings change is needed for method (A) or (B). The merge push is
+expected to start `Deploy to Pages` with jobs
+`browser-gate / browser-characterization`, `build`, and `deploy`; `deploy`
+targets environment `github-pages`, whose branch policy permits `main` only.
+Pages leaves `7af2394` only if all three jobs succeed. Do not push to `main`
+again until that run completes because deployment concurrency group `pages`
+uses `cancel-in-progress: true`. After this first run makes the check
+discoverable, the founder should consider protecting `main` with required
+status-check context `browser-characterization` (the job id, not the workflow
+name or deploy-time rendering); this is a recommendation, not evidence or an
+executor action.
+
+No Protocol Observatory status, gate, decision, or measured count changes as a
+result of this entry.

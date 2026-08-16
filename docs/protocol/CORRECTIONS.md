@@ -595,3 +595,8 @@ executor action.
 
 No Protocol Observatory status, gate, decision, or measured count changes as a
 result of this entry.
+
+**M5c — commit `60b0584`, measured 2026-08-16.** `git diff --name-only
+a503023..60b0584` = `docs/protocol/CORRECTIONS.md`; second standalone run
+[31954608243](https://github.com/ShreyChouksey/universal-image-archive/actions/runs/31954608243),
+`conclusion: success`; reporter line: `11 passed (23.9s)`.

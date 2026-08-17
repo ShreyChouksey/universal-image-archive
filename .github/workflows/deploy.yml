@@ -16,6 +16,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The browser characterization gate (real Chromium: worker, WebGL2 readback,
+  # IndexedDB, reload, history, download) is one definition, called here so the
+  # gate that runs on pull requests and the gate that guards deploy are the same
+  # file. It runs in parallel with build; deploy needs both. Fail-closed.
+  browser-gate:
+    uses: ./.github/workflows/browser-characterization.yml
+    permissions:
+      contents: read
+
   build:
     runs-on: ubuntu-latest
     steps:
@@ -34,7 +43,7 @@ jobs:
           path: dist
 
   deploy:
-    needs: build
+    needs: [build, browser-gate]
     runs-on: ubuntu-latest
     environment:
       name: github-pages

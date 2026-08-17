@@ -1,21 +1,36 @@
 /**
  * 384-Byte Block Container & Transaction Payload Core (Layer 1).
  *
- * Implements exact 384-byte (3,072-bit) block container serialization, unpacking,
- * and 1-to-1 conversion with Seed3072 vectors under the Satoshi 2026 specification.
+ * Implements exact 384-byte (3,072-bit) block-container serialization, unpacking,
+ * and one-to-one conversion with Seed3072 vectors. Consensus semantics require a
+ * separate versioned protocol specification.
  */
 
 import type { Seed3072 } from './seed3072';
 
 export const BLOCK384_BYTE_SIZE = 384;
+export const UINT32_MAX = 0xffff_ffff;
+export const UINT64_MAX = (1n << 64n) - 1n;
+
+function assertUint32(value: number, field: string): void {
+  if (!Number.isInteger(value) || value < 0 || value > UINT32_MAX) {
+    throw new Error(`${field} must be an unsigned 32-bit integer`);
+  }
+}
+
+function assertUint64(value: bigint, field: string): void {
+  if (typeof value !== 'bigint' || value < 0n || value > UINT64_MAX) {
+    throw new Error(`${field} must be an unsigned 64-bit integer`);
+  }
+}
 
 export interface BlockContainer384 {
   prevBlockHash: Uint8Array; // 32 Bytes
-  stateRoot: Uint8Array; // 32 Bytes (ZK-STARK State Root)
-  txMerkleRoot: Uint8Array; // 32 Bytes (Transaction Merkle Root)
+  stateRoot: Uint8Array; // 32 Bytes (protocol-defined state commitment)
+  txMerkleRoot: Uint8Array; // 32 Bytes (protocol-defined transaction commitment)
   timestamp: bigint; // 8 Bytes (64-bit uint Unix epoch ms)
   blockHeight: number; // 4 Bytes (32-bit uint sequence height)
-  targetBits: number; // 4 Bytes (32-bit uint compact difficulty)
+  targetBits: number; // 4 Bytes (32-bit uint version-defined difficulty)
   nonce: bigint; // 8 Bytes (64-bit uint miner search nonce)
   txPayload: Uint8Array; // 257 Bytes (Compact transaction array)
   solvedTail: Uint8Array; // 7 Bytes (56-bit Mod 10^15 residue tail)
@@ -46,6 +61,10 @@ export function encodeBlock384(block: BlockContainer384): Uint8Array {
   if (block.txMerkleRoot.length !== 32) throw new Error('txMerkleRoot must be 32 bytes');
   if (block.txPayload.length !== 257) throw new Error('txPayload must be 257 bytes');
   if (block.solvedTail.length !== 7) throw new Error('solvedTail must be 7 bytes');
+  assertUint64(block.timestamp, 'timestamp');
+  assertUint32(block.blockHeight, 'blockHeight');
+  assertUint32(block.targetBits, 'targetBits');
+  assertUint64(block.nonce, 'nonce');
 
   out.set(block.prevBlockHash, 0);
   out.set(block.stateRoot, 32);

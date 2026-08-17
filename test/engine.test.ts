@@ -1929,10 +1929,30 @@ test('Layer 0: materialiseSeed3072 generates pixel payload for tiny grid', async
   assert.equal(buffer.length, 192);
 });
 
-test('Layer 0: WebGPU 3,072-bit compute engine instantiates cleanly', async () => {
+test('Layer 0: WebGPU 3,072-bit compute engine instantiates and matches CPU when an adapter is available', async () => {
   const { createComputeEngine3072 } = await import('../src/gpu/compute3072.ts');
+  const { materialiseSeed3072 } = await import('../src/core/philox96.ts');
+  const { randomSeed3072 } = await import('../src/core/seed3072.ts');
+  const { RESOLUTIONS, DEPTHS, pixelCount } = await import('../src/core/format.ts');
   const engine = await createComputeEngine3072();
   assert.ok(typeof engine.supported === 'boolean');
+
+  if (engine.supported) {
+    const format = {
+      resolution: RESOLUTIONS.find((entry) => entry.id === 'px8')!,
+      depth: DEPTHS.find((entry) => entry.bpc === 8)!,
+    };
+    const seed = randomSeed3072();
+    const gpu = await engine.materialise(format, seed, 32);
+    assert.ok(gpu !== null);
+    const cpu = materialiseSeed3072(
+      format,
+      seed,
+      new Uint8Array(pixelCount(format) * format.depth.bytesPerPixel),
+      32,
+    );
+    assert.deepEqual(gpu, cpu);
+  }
   engine.dispose();
 });
 
@@ -2026,6 +2046,26 @@ test('Block384: Packing and unpacking roundtrips byte-for-byte with exact field 
   assert.deepEqual(unpacked.solvedTail, block.solvedTail);
 });
 
+test('Block384: serialization rejects non-canonical scalar values instead of wrapping them', async () => {
+  const { createEmptyBlock384, encodeBlock384 } = await import('../src/core/block384.ts');
+
+  const fractional = createEmptyBlock384();
+  fractional.blockHeight = 1.5;
+  assert.throws(() => encodeBlock384(fractional), /unsigned 32-bit integer/);
+
+  const overflow = createEmptyBlock384();
+  overflow.targetBits = 2 ** 32;
+  assert.throws(() => encodeBlock384(overflow), /unsigned 32-bit integer/);
+
+  const negativeNonce = createEmptyBlock384();
+  negativeNonce.nonce = -1n;
+  assert.throws(() => encodeBlock384(negativeNonce), /unsigned 64-bit integer/);
+
+  const wrappedNonce = createEmptyBlock384();
+  wrappedNonce.nonce = 1n << 64n;
+  assert.throws(() => encodeBlock384(wrappedNonce), /unsigned 64-bit integer/);
+});
+
 test('Block384: Bijective conversion to Seed3072 and back preserves all 3,072 bits', async () => {
   const { createEmptyBlock384, encodeBlock384, blockToSeed3072, seed3072ToBlockBytes } = await import('../src/core/block384.ts');
 
@@ -2054,26 +2094,58 @@ test('Layer 1.5 Mining: generateMemoryScratchpad expands Seed3072 into memory bu
   assert.notDeepEqual(scratchpad, copy);
 });
 
+test('Layer 1.5 Mining: rejects invalid memory, mixing, and uncommitted difficulty parameters', async () => {
+  const { generateMemoryScratchpad, mixScratchpadMemoryHard, mineBlock3072, verifyBlockMining3072 } = await import('../src/core/mining3072.ts');
+  const { evaluateFullSparsity3072 } = await import('../src/core/sparsity3072.ts');
+  const { randomSeed3072 } = await import('../src/core/seed3072.ts');
+  const { createEmptyBlock384 } = await import('../src/core/block384.ts');
+
+  const seed = randomSeed3072();
+  for (const invalid of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 65]) {
+    assert.throws(() => generateMemoryScratchpad(seed, invalid), /memoryMb/);
+  }
+  assert.throws(() => mixScratchpadMemoryHard(new Uint32Array(), 1), /must not be empty/);
+  assert.throws(() => mixScratchpadMemoryHard(new Uint32Array(1), 0), /passes/);
+  assert.throws(() => evaluateFullSparsity3072(seed, 3072, Number.NaN), /memoryMb/);
+
+  const block = createEmptyBlock384();
+  block.targetBits = 1;
+  assert.throws(() => mineBlock3072(block, 0, 1), /expectedLeadingZeros/);
+  assert.throws(() => mineBlock3072(block, 1, 1, 1), /fixed profile value/);
+  assert.throws(() => verifyBlockMining3072(block, 0), /expectedLeadingZeros/);
+
+  const selfDeclaredZero = createEmptyBlock384();
+  selfDeclaredZero.targetBits = 0;
+  assert.throws(() => verifyBlockMining3072(selfDeclaredZero, 0), /block.targetBits/);
+
+  const mismatchedNetworkTarget = createEmptyBlock384();
+  mismatchedNetworkTarget.targetBits = 1;
+  assert.throws(() => verifyBlockMining3072(mismatchedNetworkTarget, 2), /must match block.targetBits/);
+});
+
 test('Layer 1.5 Mining: mineBlock3072 finds valid nonce and verifyBlockMining3072 verifies it', async () => {
   const { mineBlock3072, verifyBlockMining3072 } = await import('../src/core/mining3072.ts');
   const { createEmptyBlock384 } = await import('../src/core/block384.ts');
 
   const block = createEmptyBlock384();
   block.blockHeight = 1;
+  block.targetBits = 1;
   block.prevBlockHash.fill(0x01);
+  const originalNonce = block.nonce;
 
-  const res = mineBlock3072(block, 1, 500, 1); // 1 leading zero bit target
+  const res = mineBlock3072(block, 1, 500); // 1 leading zero bit target
   assert.equal(res.found, true);
   assert.ok(res.attempts >= 1);
   assert.ok(res.seed !== null);
+  assert.equal(block.nonce, originalNonce, 'mining must not mutate the caller block');
 
-  const verify = verifyBlockMining3072(res.minedBlock!, 1, 1);
+  const verify = verifyBlockMining3072(res.minedBlock!, 1);
   assert.equal(verify.valid, true);
   assert.equal(verify.leadingZeros, res.leadingZeros);
 
   // Tamper check
   const badBlock = { ...res.minedBlock!, nonce: res.minedBlock!.nonce + 9999n };
-  const verifyBad = verifyBlockMining3072(badBlock, 4, 1);
+  const verifyBad = verifyBlockMining3072(badBlock, 1);
   assert.notEqual(verifyBad.hashHex, res.hashHex);
 });
 
@@ -2090,7 +2162,7 @@ test('Layer 1.5 Full Sparsity: compressScratchpadToVector3072 yields 96-word (3,
   assert.ok(typeof lz === 'number');
 });
 
-test('Layer 2.0 Ledger: Post-quantum keypair generation derives valid 32-byte address commitments', async () => {
+test('Layer 2.0 Ledger: experimental key derivation produces a stable 32-byte address identifier', async () => {
   const { generateQuantumKeypair3072 } = await import('../src/core/ledger3072.ts');
   const kp = generateQuantumKeypair3072();
 
@@ -2123,6 +2195,25 @@ test('Layer 2.0 Ledger: Tx384 packing and unpacking roundtrips byte-for-byte', a
   assert.deepEqual(decoded.zkProofHash, tx.zkProofHash);
 });
 
+test('Layer 2.0 Ledger: Tx384 rejects overflow, negative values, and trailing bytes', async () => {
+  const { encodeTx384, decodeTx384 } = await import('../src/core/ledger3072.ts');
+  const base = {
+    senderAddress: new Uint8Array(32),
+    recipientAddress: new Uint8Array(32),
+    amount: 1n,
+    fee: 1n,
+    nullifier: new Uint8Array(32),
+    zkProofHash: new Uint8Array(32),
+  };
+
+  assert.throws(() => encodeTx384({ ...base, amount: -1n }), /unsigned 64-bit integer/);
+  assert.throws(() => encodeTx384({ ...base, fee: 1n << 64n }), /unsigned 64-bit integer/);
+  const encoded = encodeTx384(base);
+  const withTrailingByte = new Uint8Array(encoded.length + 1);
+  withTrailingByte.set(encoded);
+  assert.throws(() => decodeTx384(withTrailingByte), /exactly 144 bytes/);
+});
+
 test('Layer 2.0 Ledger: ZKStateTree3072 applies coinbase subsidy, processes transfers, and detects double-spending', async () => {
   const { ZKStateTree3072, generateQuantumKeypair3072, deriveAddressHex } = await import('../src/core/ledger3072.ts');
   const { createEmptyBlock384 } = await import('../src/core/block384.ts');
@@ -2131,7 +2222,9 @@ test('Layer 2.0 Ledger: ZKStateTree3072 applies coinbase subsidy, processes tran
   const alice = generateQuantumKeypair3072();
   const bob = generateQuantumKeypair3072();
 
-  const ledger = new ZKStateTree3072();
+  // Explicit test-only authorization stub. Production callers must supply a
+  // reviewed verifier for the authenticated transaction envelope.
+  const ledger = new ZKStateTree3072((tx) => tx.zkProofHash.some((byte) => byte !== 0));
   const block1 = createEmptyBlock384();
   block1.blockHeight = 0; // Coinbase subsidy = 50 coins (50_0000_0000 satoshis)
 
@@ -2175,8 +2268,8 @@ test('Layer 2.0 Ledger: ZKStateTree3072 applies coinbase subsidy, processes tran
   assert.ok(res3.error?.includes('Double spend detected'));
 });
 
-test('Layer 2.5 ZK-STARK: generateSTARKProof3072 generates valid proof and verifySTARKProof3072 verifies in O(1) time', async () => {
-  const { generateSTARKProof3072, verifySTARKProof3072, proofToHash32 } = await import('../src/core/zk3072.ts');
+test('Layer 2.5 transcript: private self-check binds the full transaction and public verification fails closed', async () => {
+  const { generateSTARKProof3072, verifySTARKProof3072, verifyPrivateTranscript3072, proofToHash32 } = await import('../src/core/zk3072.ts');
   const { generateQuantumKeypair3072 } = await import('../src/core/ledger3072.ts');
 
   const alice = generateQuantumKeypair3072();
@@ -2196,20 +2289,24 @@ test('Layer 2.5 ZK-STARK: generateSTARKProof3072 generates valid proof and verif
   assert.equal(proof.friQueryCommitment.length, 32);
   assert.equal(proof.evalProof.length, 64);
 
-  const isValid = verifySTARKProof3072(proof, alice.publicKeyHash, tx.nullifier);
-  assert.equal(isValid, true);
+  assert.equal(verifyPrivateTranscript3072(proof, alice.privateSeed, tx), true);
+  assert.equal(verifySTARKProof3072(proof, alice.publicKeyHash, tx.nullifier), false);
 
   const proofHash = proofToHash32(proof);
   assert.equal(proofHash.length, 32);
 
-  // Tamper check: wrong sender address
-  const isValidTampered = verifySTARKProof3072(proof, bob.publicKeyHash, tx.nullifier);
-  assert.equal(isValidTampered, false);
+  const changedAmount = { ...tx, amount: tx.amount + (1n << 32n) };
+  const changedFee = { ...tx, fee: tx.fee + 1n };
+  const changedRecipient = { ...tx, recipientAddress: bob.publicKeyHash.slice().fill(0x5a) };
+  assert.equal(verifyPrivateTranscript3072(proof, alice.privateSeed, changedAmount), false);
+  assert.equal(verifyPrivateTranscript3072(proof, alice.privateSeed, changedFee), false);
+  assert.equal(verifyPrivateTranscript3072(proof, alice.privateSeed, changedRecipient), false);
 });
 
 test('Layer 3.0 P2P Broadcast: P2PBroadcastMesh3072 relays blocks and transactions to connected peers', async () => {
   const { P2PBroadcastMesh3072 } = await import('../src/core/p2pBroadcast3072.ts');
   const { createEmptyBlock384 } = await import('../src/core/block384.ts');
+  const { generateQuantumKeypair3072 } = await import('../src/core/ledger3072.ts');
 
   const nodeA = new P2PBroadcastMesh3072('node-A');
   const nodeB = new P2PBroadcastMesh3072('node-B');
@@ -2233,6 +2330,22 @@ test('Layer 3.0 P2P Broadcast: P2PBroadcastMesh3072 relays blocks and transactio
   assert.equal(receivedBlock.blockHeight, 999);
   assert.equal(receivedBlock.nonce, 123456789n);
 
+  const alice = generateQuantumKeypair3072();
+  const bob = generateQuantumKeypair3072();
+  const tx = {
+    senderAddress: alice.publicKeyHash,
+    recipientAddress: bob.publicKeyHash,
+    amount: 123n,
+    fee: 1n,
+    nullifier: new Uint8Array(32).fill(0x23),
+    zkProofHash: new Uint8Array(32).fill(0x45),
+  };
+  let receivedTx: any = null;
+  nodeB.onTx((incoming) => { receivedTx = incoming; });
+  nodeA.broadcastTx(tx);
+  assert.ok(receivedTx !== null);
+  assert.equal(receivedTx.amount, 123n);
+
   // Duplicate message test (LRU deduplication)
   let repeatCount = 0;
   nodeB.onBlock(() => {
@@ -2242,14 +2355,281 @@ test('Layer 3.0 P2P Broadcast: P2PBroadcastMesh3072 relays blocks and transactio
   assert.equal(repeatCount, 0); // Second broadcast ignored as duplicate
 });
 
+test('Layer 2.5 transcript: arbitrary nonzero public transcript cannot authorize a transaction', async () => {
+  const { verifySTARKProof3072 } = await import('../src/core/zk3072.ts');
+  const { generateQuantumKeypair3072 } = await import('../src/core/ledger3072.ts');
 
+  const alice = generateQuantumKeypair3072();
+  const nullifier = new Uint8Array(32).fill(0xaa);
 
+  // Attempt forgery: crafting forged proof without private seed secret response key
+  const traceCommitment = new Uint8Array(32).fill(0x01);
+  const friQueryCommitment = new Uint8Array(32).fill(0x02);
+  const evalProof = new Uint8Array(64);
+  evalProof.set(alice.publicKeyHash, 0);
+  for (let i = 0; i < 32; i++) {
+    evalProof[32 + i] = traceCommitment[i]! ^ friQueryCommitment[i]! ^ nullifier[i]! ^ 0x7f;
+  }
 
+  const forgedProof = { traceCommitment, friQueryCommitment, evalProof };
+  const isValid = verifySTARKProof3072(forgedProof, alice.publicKeyHash, nullifier);
+  assert.equal(isValid, false);
+});
 
+test('Layer 2.0 Ledger: failed application rolls back, enforces contiguous heights, and fails closed on authorization', async () => {
+  const { ZKStateTree3072, generateQuantumKeypair3072 } = await import('../src/core/ledger3072.ts');
+  const { createEmptyBlock384 } = await import('../src/core/block384.ts');
 
+  const ledger = new ZKStateTree3072();
+  const miner = generateQuantumKeypair3072();
+  const alice = generateQuantumKeypair3072();
+  const bob = generateQuantumKeypair3072();
 
+  // Mine genesis block to give miner funds
+  const block0 = createEmptyBlock384();
+  block0.blockHeight = 0;
+  ledger.applyBlock(block0, [], miner.publicKeyHash);
 
+  // Replay block height 0 should be rejected
+  const replayRes = ledger.applyBlock(block0, [], miner.publicKeyHash);
+  assert.equal(replayRes.success, false);
+  assert.match(replayRes.error || '', /Non-contiguous block height/);
 
+  const minerInitialBal = ledger.getBalance(miner.addressHex);
+  assert.ok(minerInitialBal > 0n);
 
+  // A transaction with an arbitrary nonzero commitment is not authorization.
+  const unauthorizedTx = {
+    senderAddress: miner.publicKeyHash,
+    recipientAddress: alice.publicKeyHash,
+    amount: 1000n,
+    fee: 10n,
+    nullifier: new Uint8Array(32).fill(1),
+    zkProofHash: new Uint8Array(32).fill(0x7f),
+  };
 
+  const block1 = createEmptyBlock384();
+  block1.blockHeight = 1;
+  const unauthorizedRes = ledger.applyBlock(block1, [unauthorizedTx], miner.publicKeyHash);
+  assert.equal(unauthorizedRes.success, false);
+  assert.match(unauthorizedRes.error || '', /authorization is not configured/);
+  assert.equal(ledger.getBalance(miner.addressHex), minerInitialBal);
+  assert.equal(ledger.getLastAppliedHeight(), 0);
 
+  const gap = createEmptyBlock384();
+  gap.blockHeight = 2;
+  const gapRes = ledger.applyBlock(gap, [], miner.publicKeyHash);
+  assert.equal(gapRes.success, false);
+  assert.match(gapRes.error || '', /expected 1, got 2/);
+
+  const fractional = createEmptyBlock384();
+  fractional.blockHeight = 0.5;
+  const fractionalRes = ledger.applyBlock(fractional, [], miner.publicKeyHash);
+  assert.equal(fractionalRes.success, false);
+  assert.match(fractionalRes.error || '', /unsigned 32-bit integer/);
+});
+
+test('Layer 2.0 Ledger: state fingerprints include high balance bits and canonical transaction bytes', async () => {
+  const { ZKStateTree3072, generateQuantumKeypair3072, buildTxMerkleRoot } = await import('../src/core/ledger3072.ts');
+  const { createEmptyBlock384 } = await import('../src/core/block384.ts');
+
+  const miner = generateQuantumKeypair3072();
+  const recipient = generateQuantumKeypair3072();
+  const authorize = () => true;
+  const lowLedger = new ZKStateTree3072(authorize);
+  const highLedger = new ZKStateTree3072(authorize);
+
+  const lowGenesis = createEmptyBlock384();
+  const highGenesis = createEmptyBlock384();
+  assert.equal(lowLedger.applyBlock(lowGenesis, [], miner.publicKeyHash).success, true);
+  assert.equal(highLedger.applyBlock(highGenesis, [], miner.publicKeyHash).success, true);
+
+  const baseTx = {
+    senderAddress: miner.publicKeyHash,
+    recipientAddress: recipient.publicKeyHash,
+    amount: 1n,
+    fee: 0n,
+    nullifier: new Uint8Array(32).fill(0x31),
+    zkProofHash: new Uint8Array(32).fill(0x41),
+  };
+  const highTx = { ...baseTx, amount: 1n + (1n << 32n) };
+  const lowBlock = createEmptyBlock384();
+  lowBlock.blockHeight = 1;
+  const highBlock = createEmptyBlock384();
+  highBlock.blockHeight = 1;
+
+  const lowResult = lowLedger.applyBlock(lowBlock, [baseTx], miner.publicKeyHash);
+  const highResult = highLedger.applyBlock(highBlock, [highTx], miner.publicKeyHash);
+  assert.equal(lowResult.success, true);
+  assert.equal(highResult.success, true);
+  assert.notDeepEqual(lowResult.stateRoot, highResult.stateRoot);
+  assert.notDeepEqual(buildTxMerkleRoot([baseTx]), buildTxMerkleRoot([highTx]));
+  assert.ok(lowResult.stateRoot.slice(12).some((byte) => byte !== 0));
+
+  const forward = new Map([['uia1aa', 1n], ['uia1bb', 2n]]);
+  const reverse = new Map([['uia1bb', 2n], ['uia1aa', 1n]]);
+  assert.deepEqual(lowLedger.getStateRoot(forward, new Set()), lowLedger.getStateRoot(reverse, new Set()));
+});
+
+test('Layer 3.0 P2P Broadcast: Multi-hop mesh relays messages across A -> B -> C', async () => {
+  const { P2PBroadcastMesh3072 } = await import('../src/core/p2pBroadcast3072.ts');
+  const { createEmptyBlock384 } = await import('../src/core/block384.ts');
+
+  const nodeA = new P2PBroadcastMesh3072('node-A');
+  const nodeB = new P2PBroadcastMesh3072('node-B');
+  const nodeC = new P2PBroadcastMesh3072('node-C');
+
+  // A connects to B, B connects to C
+  nodeA.addPeer(nodeB.nodeId, (msg) => nodeB.receiveMessage(msg, nodeA.nodeId));
+  nodeB.addPeer(nodeA.nodeId, (msg) => nodeA.receiveMessage(msg, nodeB.nodeId));
+  nodeB.addPeer(nodeC.nodeId, (msg) => nodeC.receiveMessage(msg, nodeB.nodeId));
+  nodeC.addPeer(nodeB.nodeId, (msg) => nodeB.receiveMessage(msg, nodeC.nodeId));
+
+  let nodeCBlock: any = null;
+  nodeC.onBlock((block) => {
+    nodeCBlock = block;
+  });
+
+  const block = createEmptyBlock384();
+  block.blockHeight = 42;
+  nodeA.broadcastBlock(block);
+
+  assert.ok(nodeCBlock !== null);
+  assert.equal(nodeCBlock.blockHeight, 42);
+});
+
+test('Layer 1.5 Mining: Memory-hard scratchpad mixing diffuses unsigned indices cleanly', async () => {
+  const { generateMemoryScratchpad, mixScratchpadMemoryHard } = await import('../src/core/mining3072.ts');
+  const { randomSeed3072 } = await import('../src/core/seed3072.ts');
+
+  const seed = randomSeed3072();
+  const pad = generateMemoryScratchpad(seed, 1); // 1 MiB scratchpad
+  const before = new Uint32Array(pad);
+
+  mixScratchpadMemoryHard(pad, 1);
+
+  let changedWords = 0;
+  for (let i = 0; i < pad.length; i++) {
+    if (pad[i] !== before[i]) changedWords++;
+  }
+  assert.ok(changedWords > pad.length / 2, `expected broad diffusion, saw ${changedWords}/${pad.length} changed words`);
+});
+
+test('Layer 0 Seed3072: Rejects invalid or empty hex strings', async () => {
+  const { seed3072FromHex } = await import('../src/core/seed3072.ts');
+  assert.throws(() => seed3072FromHex(''), /must be exactly 768/);
+  assert.throws(() => seed3072FromHex('abc'), /must be exactly 768/);
+});
+
+test('Layer 3.0 P2P Broadcast: Validates frame length bounds and handles peer errors cleanly', async () => {
+  const { P2PBroadcastMesh3072 } = await import('../src/core/p2pBroadcast3072.ts');
+  const node = new P2PBroadcastMesh3072();
+
+  // Invalid payload length
+  const invalidFrame = new Uint8Array([0x01, 0x00, 0x00, 0x01, 0x00]); // Claims 256 byte payload but provides 0
+  const res = node.receiveMessage(invalidFrame);
+  assert.equal(res.handled, false);
+  assert.match(res.error || '', /Invalid frame length/);
+
+  // Peer throwing exception should not throw during broadcast
+  node.addPeer('failing-peer', () => {
+    throw new Error('Peer socket closed');
+  });
+
+  const { createEmptyBlock384 } = await import('../src/core/block384.ts');
+  assert.doesNotThrow(() => node.broadcastBlock(createEmptyBlock384()));
+
+  const asyncNode = new P2PBroadcastMesh3072('async-node');
+  asyncNode.addPeer('rejecting-peer', async () => {
+    throw new Error('Asynchronous transport failure');
+  });
+  asyncNode.broadcastBlock(createEmptyBlock384());
+  await new Promise((resolve) => setTimeout(resolve, 0));
+});
+
+test('Layer 3.0 P2P Broadcast: isolates handlers, clones fan-out frames, and ignores invalid cache churn', async () => {
+  const { P2PBroadcastMesh3072 } = await import('../src/core/p2pBroadcast3072.ts');
+  const { createEmptyBlock384, encodeBlock384 } = await import('../src/core/block384.ts');
+
+  const origin = new P2PBroadcastMesh3072('origin');
+  const middle = new P2PBroadcastMesh3072('middle');
+  const downstream = new P2PBroadcastMesh3072('downstream');
+  origin.addPeer(middle.nodeId, (msg) => { middle.receiveMessage(msg, origin.nodeId); });
+  middle.addPeer(downstream.nodeId, (msg) => { downstream.receiveMessage(msg, middle.nodeId); });
+
+  let laterHandlerRuns = 0;
+  let laterHandlerHeight = -1;
+  let downstreamRuns = 0;
+  middle.onBlock((block) => {
+    block.blockHeight = 999;
+    throw new Error('application handler failure');
+  });
+  middle.onBlock(async () => {
+    throw new Error('asynchronous application handler failure');
+  });
+  middle.onBlock((block) => {
+    laterHandlerRuns++;
+    laterHandlerHeight = block.blockHeight;
+  });
+  downstream.onBlock(() => { downstreamRuns++; });
+  origin.broadcastBlock(createEmptyBlock384());
+  assert.equal(laterHandlerRuns, 1);
+  assert.equal(laterHandlerHeight, 0);
+  assert.equal(downstreamRuns, 1);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const fanout = new P2PBroadcastMesh3072('fanout');
+  fanout.addPeer('mutator', (msg) => { msg[0] = 0xff; });
+  let observedType = 0;
+  fanout.addPeer('observer', (msg) => { observedType = msg[0]!; });
+  fanout.broadcastBlock(createEmptyBlock384());
+  assert.equal(observedType, 0x01);
+
+  const receiver = new P2PBroadcastMesh3072('receiver');
+  let accepted = 0;
+  receiver.onBlock(() => { accepted++; });
+  const blockPayload = encodeBlock384(createEmptyBlock384());
+  const validFrame = new Uint8Array(5 + blockPayload.length);
+  validFrame[0] = 0x01;
+  new DataView(validFrame.buffer).setUint32(1, blockPayload.length, false);
+  validFrame.set(blockPayload, 5);
+  assert.equal(receiver.receiveMessage(validFrame).handled, true);
+
+  for (let i = 0; i < 1_001; i++) {
+    const unknown = new Uint8Array(9);
+    unknown[0] = 0xff;
+    new DataView(unknown.buffer).setUint32(1, 4, false);
+    new DataView(unknown.buffer).setUint32(5, i, false);
+    assert.equal(receiver.receiveMessage(unknown).handled, false);
+  }
+  assert.equal(receiver.receiveMessage(validFrame).handled, false);
+  assert.equal(accepted, 1);
+});
+
+test('Protocol Observatory: progress model is internally consistent and keeps consensus branches conditional', async () => {
+  const {
+    OPEN_PROTOCOL_DECISIONS,
+    PROTOCOL_AREAS,
+    PROTOCOL_GATES,
+    PROTOCOL_WORK_ITEMS,
+    validateProtocolProgressModel,
+  } = await import('../src/core/protocolProgress.ts');
+
+  assert.deepEqual(validateProtocolProgressModel(), []);
+  assert.equal(PROTOCOL_AREAS.length, 12);
+  assert.deepEqual(PROTOCOL_GATES.map((gate) => gate.id), [
+    'G0', 'G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'G9', 'G10',
+  ]);
+  assert.equal(PROTOCOL_GATES.filter((gate) => gate.status === 'pass').length, 0);
+  assert.equal(OPEN_PROTOCOL_DECISIONS.length, 15);
+
+  const branches = ['consensus-pow', 'consensus-pos', 'consensus-bft'].map((id) =>
+    PROTOCOL_WORK_ITEMS.find((workItem) => workItem.id === id),
+  );
+  assert.ok(branches.every((branch) => branch?.status === 'conditional'));
+  assert.ok(branches.every((branch) => branch?.applicability === 'conditional'));
+
+  const adr001 = PROTOCOL_WORK_ITEMS.find((workItem) => workItem.id === 'grammar-adr');
+  assert.equal(adr001?.status, 'active');
+  assert.equal(adr001?.gate, 'G1');
+});

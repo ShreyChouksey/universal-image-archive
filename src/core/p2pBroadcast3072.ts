@@ -1,9 +1,8 @@
 /**
- * Layer 3.0: P2P WebRTC Block & Transaction Broadcast Mesh Relay.
+ * Transport-agnostic block and transaction gossip core.
  *
- * Implements a serverless, peer-to-peer gossip network over WebRTC DataChannels.
- * Enables zero-latency block propagation and transaction mempool relay with
- * LRU deduplication and zero centralized control.
+ * Peers are callback adapters; this class does not implement WebRTC, consensus
+ * validation, a mempool, source authentication, or transport backpressure.
  */
 
 import type { BlockContainer384 } from './block384';
@@ -20,12 +19,12 @@ export interface P2PMessageHeader {
 
 export class P2PBroadcastMesh3072 {
   public readonly nodeId: string;
-  private peers = new Map<string, (data: Uint8Array) => void>();
-  private seenHashes = new Set<string>();
+  private peers = new Map<string, (data: Uint8Array) => void | Promise<void>>();
+  private seenMessages = new Map<string, true>();
   private maxSeenCache = 1000;
 
-  private blockHandlers: ((block: BlockContainer384) => void)[] = [];
-  private txHandlers: ((tx: Tx384) => void)[] = [];
+  private blockHandlers: ((block: BlockContainer384) => void | Promise<void>)[] = [];
+  private txHandlers: ((tx: Tx384) => void | Promise<void>)[] = [];
 
   constructor(nodeId?: string) {
     this.nodeId = nodeId ?? `node-${Math.random().toString(36).substring(2, 10)}`;
@@ -34,7 +33,7 @@ export class P2PBroadcastMesh3072 {
   /**
    * Registers a peer connection callback for data transmission.
    */
-  public addPeer(peerId: string, sendFn: (data: Uint8Array) => void): void {
+  public addPeer(peerId: string, sendFn: (data: Uint8Array) => void | Promise<void>): void {
     this.peers.set(peerId, sendFn);
   }
 
@@ -47,16 +46,18 @@ export class P2PBroadcastMesh3072 {
   }
 
   /**
-   * Subscribes to incoming verified blocks.
+   * Subscribes to structurally decoded blocks. Consensus validation is the
+   * subscriber's responsibility.
    */
-  public onBlock(handler: (block: BlockContainer384) => void): void {
+  public onBlock(handler: (block: BlockContainer384) => void | Promise<void>): void {
     this.blockHandlers.push(handler);
   }
 
   /**
-   * Subscribes to incoming mempool transactions.
+   * Subscribes to structurally decoded transactions. Authorization and mempool
+   * policy are the subscriber's responsibility.
    */
-  public onTx(handler: (tx: Tx384) => void): void {
+  public onTx(handler: (tx: Tx384) => void | Promise<void>): void {
     this.txHandlers.push(handler);
   }
 
@@ -66,13 +67,15 @@ export class P2PBroadcastMesh3072 {
   public broadcastBlock(block: BlockContainer384): void {
     const blockBytes = encodeBlock384(block);
     const msg = this.packMessage(0x01, blockBytes);
-    const msgHash = this.computeMsgHash(msg);
+    const msgKey = this.computeMsgKey(msg);
 
-    if (this.markSeen(msgHash)) return; // Already seen
+    if (this.markSeen(msgKey)) return;
 
+    let delivered = false;
     for (const sendFn of this.peers.values()) {
-      sendFn(msg);
+      delivered = this.sendToPeer(sendFn, msg) || delivered;
     }
+    if (!delivered) this.seenMessages.delete(msgKey);
   }
 
   /**
@@ -81,55 +84,81 @@ export class P2PBroadcastMesh3072 {
   public broadcastTx(tx: Tx384): void {
     const txBytes = encodeTx384(tx);
     const msg = this.packMessage(0x02, txBytes);
-    const msgHash = this.computeMsgHash(msg);
+    const msgKey = this.computeMsgKey(msg);
 
-    if (this.markSeen(msgHash)) return; // Already seen
+    if (this.markSeen(msgKey)) return;
 
+    let delivered = false;
     for (const sendFn of this.peers.values()) {
-      sendFn(msg);
+      delivered = this.sendToPeer(sendFn, msg) || delivered;
     }
+    if (!delivered) this.seenMessages.delete(msgKey);
   }
 
   /**
    * Ingests an incoming raw P2P message from a mesh peer.
    */
-  public receiveMessage(rawBytes: Uint8Array): { handled: boolean; type?: MessageType; error?: string } {
+  public receiveMessage(rawBytes: Uint8Array, senderPeerId?: string): { handled: boolean; type?: MessageType; error?: string } {
     if (rawBytes.length < 5) return { handled: false, error: 'Message header too short' };
-
-    const msgHash = this.computeMsgHash(rawBytes);
-    if (this.markSeen(msgHash)) {
-      return { handled: false, error: 'Duplicate message ignored' }; // Deduplicated
-    }
 
     const type = rawBytes[0] as MessageType;
     const view = new DataView(rawBytes.buffer, rawBytes.byteOffset, rawBytes.byteLength);
     const payloadLen = view.getUint32(1, false);
 
+    if (rawBytes.length !== 5 + payloadLen) {
+      return { handled: false, error: `Invalid frame length: expected ${5 + payloadLen} bytes, got ${rawBytes.length}` };
+    }
+
     const payload = rawBytes.slice(5, 5 + payloadLen);
+    let block: BlockContainer384 | null = null;
+    let tx: Tx384 | null = null;
 
     if (type === 0x01) {
       try {
-        const block = decodeBlock384(payload);
-        for (const handler of this.blockHandlers) {
-          handler(block);
-        }
-        return { handled: true, type: 0x01 };
+        block = decodeBlock384(payload);
       } catch (err) {
         return { handled: false, error: `Invalid block payload: ${String(err)}` };
       }
     } else if (type === 0x02) {
       try {
-        const tx = decodeTx384(payload);
-        for (const handler of this.txHandlers) {
-          handler(tx);
-        }
-        return { handled: true, type: 0x02 };
+        tx = decodeTx384(payload);
       } catch (err) {
         return { handled: false, error: `Invalid transaction payload: ${String(err)}` };
       }
+    } else {
+      return { handled: false, error: `Unknown message type ${type}` };
     }
 
-    return { handled: false, error: `Unknown message type ${type}` };
+    // Cache only structurally valid frames. The exact-byte key avoids introducing
+    // collision semantics into the bounded in-memory deduplication cache.
+    const msgKey = this.computeMsgKey(rawBytes);
+    if (this.markSeen(msgKey)) return { handled: false, error: 'Duplicate message ignored' };
+
+    if (block) {
+      for (const handler of this.blockHandlers) {
+        try {
+          const result = handler(decodeBlock384(payload));
+          if (result && typeof result.then === 'function') void result.catch(() => { /* isolate async handlers */ });
+        } catch { /* isolate synchronous handlers */ }
+      }
+    } else if (tx) {
+      for (const handler of this.txHandlers) {
+        try {
+          const result = handler(decodeTx384(payload));
+          if (result && typeof result.then === 'function') void result.catch(() => { /* isolate async handlers */ });
+        } catch { /* isolate synchronous handlers */ }
+      }
+    }
+
+    // Forward structurally valid messages to every peer except the asserted
+    // source. A transport adapter must bind senderPeerId to its connection.
+    for (const [peerId, sendFn] of this.peers.entries()) {
+      if (peerId !== senderPeerId) {
+        this.sendToPeer(sendFn, rawBytes);
+      }
+    }
+
+    return { handled: true, type };
   }
 
   private packMessage(type: MessageType, payload: Uint8Array): Uint8Array {
@@ -142,22 +171,41 @@ export class P2PBroadcastMesh3072 {
     return out;
   }
 
-  private computeMsgHash(msg: Uint8Array): string {
-    let h0 = 0x6a09e667;
+  private computeMsgKey(msg: Uint8Array): string {
+    let key = '';
     for (let i = 0; i < msg.length; i++) {
-      h0 = Math.imul(h0 ^ msg[i]!, 0x01000193) >>> 0;
+      key += msg[i]!.toString(16).padStart(2, '0');
     }
-    return h0.toString(16);
+    return key;
   }
 
-  private markSeen(hash: string): boolean {
-    if (this.seenHashes.has(hash)) return true;
+  private markSeen(key: string): boolean {
+    if (this.seenMessages.has(key)) {
+      this.seenMessages.delete(key);
+      this.seenMessages.set(key, true);
+      return true;
+    }
 
-    this.seenHashes.add(hash);
-    if (this.seenHashes.size > this.maxSeenCache) {
-      const first = this.seenHashes.values().next().value;
-      if (first) this.seenHashes.delete(first);
+    this.seenMessages.set(key, true);
+    if (this.seenMessages.size > this.maxSeenCache) {
+      const first = this.seenMessages.keys().next().value;
+      if (first !== undefined) this.seenMessages.delete(first);
     }
     return false;
+  }
+
+  private sendToPeer(
+    sendFn: (data: Uint8Array) => void | Promise<void>,
+    message: Uint8Array,
+  ): boolean {
+    try {
+      const result = sendFn(message.slice());
+      if (result && typeof result.then === 'function') {
+        void result.catch(() => { /* transport adapters own retry policy */ });
+      }
+      return true;
+    } catch {
+      return false;
+    }
   }
 }

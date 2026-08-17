@@ -1,5 +1,14 @@
 # Handoff — Universal Image Archive
 
+> **STALE SNAPSHOT — 2026-08-14.** This handoff predates the M2 integration
+> checkpoint and must not be used as current verification evidence. Known stale
+> or false statements below include: the four “87 tests” counts; the “~1,900
+> lines” size; `PATCH_PIXELS = 12`, 72 bytes, and `256^-72` (the current constant
+> is 128 pixels, or 768 RGB16 bytes); and the claims that the working tree was
+> clean, everything was deployed and verified, or “Nothing is broken.” See
+> [docs/protocol/CORRECTIONS.md](docs/protocol/CORRECTIONS.md) for the measured
+> correction ledger. Historical prose is retained to preserve context.
+
 You are taking over a working, deployed project. Read this before touching anything: several
 things that look like bugs are deliberate, and several things that look fine have already
 been proven wrong once.

@@ -63,6 +63,7 @@
           <button class="tab" type="button" data-drawer="address">Address</button>
           <button class="tab" type="button" data-drawer="plate">Plate</button>
           <button class="tab" type="button" data-drawer="keys">Keys</button>
+          <button class="tab rail__protocol" id="protocolOpen" type="button">Protocol</button>
           <button class="tab" type="button" data-drawer="about">About</button>
         </nav>
       </header>
@@ -458,7 +459,7 @@
             <tr><td><kbd>Alt</kbd> + <kbd>D</kbd> / <kbd>F</kbd></td><td>Step Tail digit, ∓100</td></tr>
             <tr><td><kbd>Alt</kbd> + <kbd>C</kbd></td><td>Copy permalink URL</td></tr>
             <tr><td><kbd>Alt</kbd> + <kbd>G</kbd> / <kbd>⌥G</kbd></td><td>Freeze / toggle entropy sculpting</td></tr>
-            <tr><td><kbd>Space</kbd></td><td>Start or stop traversing</td></tr>
+            <tr><td><kbd>Space</kbd></td><td>Start or stop traversing (known limitation: unavailable while a button retains focus)</td></tr>
             <tr><td><kbd>F</kbd></td><td>Fit grid, or reset sphere view</td></tr>
             <tr><td><kbd>1</kbd></td><td>View at 1:1 scale</td></tr>
             <tr><td><kbd>G</kbd></td><td>Switch between plane and sphere</td></tr>
@@ -574,6 +575,15 @@
         </p>
       </section>
     </aside>
+
+    <section
+      class="protocol-observatory"
+      id="protocolObservatory"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="protocolObservatoryTitle"
+      hidden
+    ></section>
 
     <div class="telemetry-modal" id="telemetryModal" hidden>
       <div class="telemetry-modal__backdrop" id="telemetryBackdrop"></div>

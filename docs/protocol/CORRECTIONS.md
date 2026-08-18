@@ -152,17 +152,25 @@ grep -c '^  test(' test/engine.test.ts      # 4 (lines 211, 229, 645, 777, insid
 
 | Checkpoint | SHA | Parent(s) | Content | Measured on that tree |
 |---|---|---|---|---|
-| Baseline | `7af2394` | — | Published baseline; `main` and `origin/main`; `.github/workflows/deploy.yml` deploys `main` to Pages on push | — |
+| Baseline | `7af2394` | — | Published baseline; GitHub default branch and Pages deployment from 2026-08-12 until superseded by `ddbf12d` on 2026-08-17; `.github/workflows/deploy.yml` deploys `main` to Pages on push | — |
 | M0 | `2830091` | `7af2394` | Evidence-only: Playwright/Chromium harness plus red generated and imported 2 × 2 RGB16 reload/export characterizations; no `src/` changes | Characterizations intentionally red against `7af2394` |
 | M1 | `18fabae` | `2830091` | `src/core/activeAddressSnapshot.ts` v1 (derived/opaque, fail-closed); `src/main.ts` address lifecycle; same assertions green; workflow renamed "Address identity browser gate"; one-line commit message, no measured body | 3/3 Chromium (recorded in `test/browser/README.md` and the `b52d96d` body) |
 | AG checkpoint | `4e63490` | `7af2394` | AG research and Protocol Observatory draft; two AG specs only (`imported_address.spec.ts`, `restored_address.spec.ts`); no canonical M1 specs present | Not measured standalone in this ledger. Its commit body records both AG specs red in pre-checkpoint artifacts (16-byte UIA2 header fixture; empty IndexedDB record read before export). The five-file 3 pass / 2 fail run was measured on the pre-retirement merge working tree, not on this tree (M2 integration evidence above). |
 | M2 merge | `b52d96d` | `4e63490` + `18fabae` | Two-parent integration; AG specs retired (sources at `4e63490`) | typecheck x2 pass; build 27 modules; engine 142/142; Chromium 3/3 |
 | M2 docs | `ad60742` | `b52d96d` | `design-qa.md`, `CORRECTIONS.md` M2 evidence; G0/G1 active, G2–G10 blocked, 0/11 | Reproduced cold 2026-08-15 by a second agent (above) |
 
-Nothing in this lineage has been pushed; `main` and `origin/main` remain at
-`7af2394`. Because `deploy.yml` publishes `main` to GitHub Pages on push, the
-Pages deployment tracks `main` = `7af2394` until the founder pushes. Local Git
-notes exist on `89a51ce` and `8f74ed2` only.
+Publication state (2026-08-18): the branch was pushed on 2026-08-16 and
+merged into GitHub's default branch by
+[PR #1](https://github.com/ShreyChouksey/universal-image-archive/pull/1) as
+merge commit `ddbf12d` (parents `7af2394`, `544e2da`; tree identical to
+`544e2da`'s) on 2026-08-17. `origin/main` = `ddbf12d`. The
+[Deploy run](https://github.com/ShreyChouksey/universal-image-archive/actions/runs/32028169087)
+on that push completed `build`, `browser-gate / browser-characterization`, and
+`deploy` with `success`, and GitHub Pages deployment `5944630790` names sha
+`ddbf12d`. Later commits (M6 onward) are recorded here as they are made; their
+own CI runs and deployments are GitHub's SHA-keyed run and deployment records
+and are cited, not copied. Local Git notes exist on `89a51ce` and `8f74ed2`
+only; `refs/notes/commits` is unpublished.
 
 ## M0–M2 process deviations and evidence-locality boundaries
 
@@ -173,7 +181,7 @@ Recorded so that later work does not mistake a shortcut for a policy.
 | `test/browser/imported_address.spec.ts`, `test/browser/restored_address.spec.ts` (AG duplicate specs) | Quarantine in-tree with `test.fixme` and a written reason after the failing run | Both files deleted in merge `b52d96d`; sources recoverable only with `git show 4e63490:test/browser/<name>`; raw failure contexts preserved outside the repository (see backup row). Defects not disputed: 16-byte header fixture against the real 20-byte UIA2 header (`test/browser/support/archive.ts:6`, `src/core/address.ts:443`) and an IndexedDB record read before export. Not a finding against the M1 assertions those specs duplicated. | known-open; awaiting founder disposition — restore both as `test.fixme` at `4e63490` content, or ratify retirement in writing | QUARANTINED |
 | Git notes on corrected commits | Notes expected on more of the 8 corrected commits | Local notes on 2 of 8 (`89a51ce`, `8f74ed2`); none on `2830091`, `18fabae`, `4e63490`, `b52d96d`, `ad60742`; `refs/notes/commits` unpublished. The tracked table above is authoritative; the absence of a note reinstates nothing. | known-open; optional duplication | QUARANTINED |
 | Commit `18fabae` (M1) | Commit body naming measured results | One-line message, no body; evidence lives in `test/browser/README.md` and the `b52d96d` merge body. | known-open; record only | QUARANTINED |
-| `.github/workflows/browser-characterization.yml` | CI execution of the address-identity gate | Triggers `pull_request`, `workflow_dispatch`, and — from the M4 commit — `workflow_call`, called by `deploy.yml` job `browser-gate` (SHA in the M4 entry). First standalone `pull_request` run observed 2026-08-16: success, https://github.com/ShreyChouksey/universal-image-archive/actions/runs/31954025398, head `a503023910294cc802152ba441631ee79a968119`; the `workflow_call` edge from `deploy.yml` remains unobserved. | known-open; standalone CI observed once; deploy edge unobserved | QUARANTINED |
+| `.github/workflows/browser-characterization.yml` | CI execution of the address-identity gate | Triggers `pull_request`, `workflow_dispatch`, and — from the M4 commit — `workflow_call`, called by `deploy.yml` job `browser-gate` (SHA in the M4 entry). Standalone `pull_request` runs observed on PR #1 (first: https://github.com/ShreyChouksey/universal-image-archive/actions/runs/31954025398, head `a503023`), all `success`; the deploy-time `workflow_call` job `browser-gate / browser-characterization` observed once in Deploy run https://github.com/ShreyChouksey/universal-image-archive/actions/runs/32028169087 on `ddbf12d`, `success`. No failing gate has been observed. | known-open; standalone and deploy-time runs observed, all green; no red observed | QUARANTINED |
 | Browser console / GPU probe | Fresh capture at M2 closeout | Browser control refused; the recorded browser evidence is the 3-test Chromium suite result and the M0/M1 committed artifacts only. | known-open | QUARANTINED |
 | `src/core/zkPlate.ts` | Removal, rename, or quarantine outside the shipping closure | Remains in `src/main.ts`'s import closure (`src/main.ts:65`, `window.UIA_FRONTIER.zkPlate` at `src/main.ts:2546-2550`) with corrected comments and unchanged bespoke 128-bit rolling-checksum behaviour and legacy `verified: true` flag; tracked by Observatory item `auth-legacy-transcripts` (experimental) and D-009. Root `index.html` carries no forbidden vocabulary. | known-open; awaiting founder disposition — remove, rename, quarantine, or retain with labelling | SHIPS |
 | Auditor-reported uniqueness percentages and dead-bit counts (session-only) | Cited as measured evidence | No fixture, script, or output file exists in the repository or in Git notes at `ad60742`; the values cannot be reproduced and are not restated here. Divergent values across auditors remain unresolved. | not citable; re-derive from a committed script before any future use | QUARANTINED |
@@ -188,45 +196,47 @@ register; each is a governance or product call this ledger cannot make.
    both as `test.fixme` at `4e63490` content.
 2. Disposition of `src/core/zkPlate.ts` inside the shipping closure: remove,
    rename, quarantine, or retain with labelling.
-3. Publication of branch `agent/ag-3072-protocol` and `refs/notes/commits`
-   (currently local; `main`/`origin` at `7af2394`). Consequence while
-   undecided: `.github/workflows/deploy.yml` deploys `main` to Pages on push,
-   so the Pages deployment tracks `7af2394`, which still contains the
-   address-identity defect characterised in `2830091` and none of the
-   corrections in this ledger. Repairing the deployed archive requires the
-   founder to merge or fast-forward `main` to a revision at or after `18fabae`
-   and push; no agent may do this. Whether to publish the protocol documents
-   in the same push is a separate choice.
+3. Publication of branch `agent/ag-3072-protocol` and `refs/notes/commits`.
+   Branch: published 2026-08-16 and merged into the default branch as
+   `ddbf12d` on 2026-08-17 (PR #1); the deployed archive no longer carries the
+   address-identity defect characterised in `2830091` (Pages deployment
+   `5944630790`, sha `ddbf12d`). Notes: `refs/notes/commits` (2 local notes)
+   remains unpublished; whether to publish it is still the founder's call.
 4. Whether the browser characterization gate becomes a required prerequisite
    of deployment. Applied as a **proposal** on branch `agent/ag-3072-protocol`
    at the M4 commit (SHA in the M4 entry): `browser-characterization.yml`
    gains `workflow_call`; `deploy.yml` gains job `browser-gate` that `deploy`
-   needs alongside `build`, fail-closed, `contents: read` only. It takes effect
-   only if `main` receives that commit; the founder accepts by merging or
-   declines by reverting it. It has not executed on GitHub. Whether the gate is
-   also made a required status check for merging to `main` is a
-   repository-settings change no agent can make and remains open; first
-   standalone run: success,
-   https://github.com/ShreyChouksey/universal-image-archive/actions/runs/31954025398.
+   needs alongside `build`, fail-closed, `contents: read` only. Part (i), by the
+   criterion this item set ("accepts by merging"): accepted when the default
+   branch received `b618c5f` in `ddbf12d` on 2026-08-17. `deploy.yml` on
+   `ddbf12d` declares `deploy.needs: [build, browser-gate]` — `build` and
+   `browser-gate` jointly gate the `deploy` job — and in the one observed
+   Deploy run both completed `success` before `deploy` ran; that a red gate
+   withholds deployment is declared semantics, not yet an observed result.
+   Part (ii): a required status check `browser-characterization` for merging
+   to `main` is unset (`branches/main/protection` → 404, rulesets `[]`,
+   2026-08-17); a repository-settings change no agent can make; remains open.
 
-**Next goal (planned 2026-08-16; executed the same day, see the M4 entry below): M4 — gate deployment on the
-browser characterization suite.** M0–M3 are complete and cited by SHA
-(`2830091`, `18fabae`, `b52d96d`, `ad60742`, `52af539`, `9757201`, `3b184a8`).
-The audit's publication precondition (b) — the browser gate as a required
-prerequisite of the deployment path — is the remaining agent-doable step
-before the founder can publish the P0 fix. Facts the goal is designed around,
-verified on 2026-08-16: `git ls-tree main .github/workflows/` lists only
-`deploy.yml`, so `browser-characterization.yml` is unregistered on GitHub and
-cannot be `workflow_dispatch`ed on the branch — the first CI observation must
-come from a `pull_request` run after a founder push; no Docker daemon is
-available locally, so the Linux runner cannot be rehearsed here; the Playwright
-reporter is `list` only, so `playwright-report/` is never produced. Planned
-shape: `browser-characterization.yml` gains `workflow_call` and a failure
-upload of `test-results/`; `deploy.yml` gains a `browser-gate` job that
-`deploy` needs alongside `build`, fail-closed, `contents: read` only. Evidence
-ceiling before a founder push: "wired; unobserved on GitHub". No test, config,
-engine, or Protocol status change. Executor and auditor to be assigned by the
-founder; measured results land in an M4/M4c pair on the M3b/M3c pattern.
+**Next goal as planned on 2026-08-16 (superseded — executed as M4 at `b618c5f`
+and observed on GitHub in M5–M6): M4 — gate deployment on the browser
+characterization suite.** Record of the plan as written that day: M0–M3 were
+complete and cited by SHA (`2830091`, `18fabae`, `b52d96d`, `ad60742`,
+`52af539`, `9757201`, `3b184a8`); the audit's publication precondition (b) —
+the browser gate as a required prerequisite of the deployment path — was the
+remaining agent-doable step before the founder could publish the P0 fix. Facts
+the plan was designed around, as verified on 2026-08-16: `git ls-tree main
+.github/workflows/` listed only `deploy.yml`, so `browser-characterization.yml`
+was then unregistered on GitHub and could not be `workflow_dispatch`ed on the
+branch, making a `pull_request` run after a founder push the first possible CI
+observation; no Docker daemon was available locally, so the Linux runner could
+not be rehearsed; the Playwright reporter was `list` only, so
+`playwright-report/` was never produced. Planned shape (as delivered at
+`b618c5f`): `browser-characterization.yml` gained `workflow_call` and a failure
+upload of `test-results/`; `deploy.yml` gained a `browser-gate` job that
+`deploy` needs alongside `build`, fail-closed, `contents: read` only. The
+evidence ceiling stated that day was "wired; unobserved on GitHub"; the runs
+that lifted it are cited in M5 and M6. No test, config, engine, or Protocol
+status changed. Executed by Claude, audited by CodeX.
 
 The treatment of the application provenance vocabulary (`derived`/`opaque`,
 `OpaqueSource`) is decided only by the accepted D-002 ADR; it is recorded as a
@@ -600,3 +610,38 @@ result of this entry.
 a503023..60b0584` = `docs/protocol/CORRECTIONS.md`; second standalone run
 [31954608243](https://github.com/ShreyChouksey/universal-image-archive/actions/runs/31954608243),
 `conclusion: success`; reporter line: `11 passed (23.9s)`.
+
+## M6 — Publication state after PR #1 (recorded 2026-08-18)
+
+Scope: this ledger and `evidence-and-integration-discipline.md` §4/§7 only —
+undated statements that became false at publication are corrected above; the
+dated M3, M4, M4c, M5, and M5c entries stand as records of 2026-08-16. No
+test, config, workflow, `src/`, engine, or Observatory change.
+
+**Observed (cited, not copied — GitHub holds the SHA-keyed record).**
+[PR #1](https://github.com/ShreyChouksey/universal-image-archive/pull/1)
+merged as `ddbf12d` (parents `7af2394`, `544e2da`; tree identical to
+`544e2da`'s), 2026-08-17. Standalone `pull_request` gate runs on that PR: three,
+all `success`. [Deploy run
+32028169087](https://github.com/ShreyChouksey/universal-image-archive/actions/runs/32028169087)
+on `ddbf12d`: `build`, `browser-gate / browser-characterization`, `deploy` all
+`success` (the `workflow_call` edge, first exercised). Pages deployment
+`5944630790` names sha `ddbf12d`; the served bundle contains
+`uia-philox4x32-image` and the `PROTOCOL_SOURCE_REVISION` string naming
+`ad60742` and `9757201`, both absent from `src/` at `7af2394`. GitHub's default
+branch and `origin/main` are `ddbf12d`; a local `main` ref that has not been
+fast-forwarded still reads `7af2394` and must not be used for audit. `main` has
+no branch protection or rulesets. `refs/notes/commits` unpublished.
+
+**Unchanged by publication.** Protocol: 0/11 gates, D-001–D-015 open, ADR-000
+draft with FD-001, FD-002, FD-003 unanswered, ADR-001 proposed, Observatory
+84 · 12 · 11 (0) · 15. Dispositions 1 (AG spec retirement) and 2 (`zkPlate.ts`
+in the shipping closure) open; six thin engine tests; deferred archive items.
+
+**Anti-loop rule adopted.** No commit is made whose sole purpose is to record a
+previous commit's SHA or CI run. This entry's own pull-request run and the
+Deploy run of its merge are GitHub's records and are not transcribed here.
+Bookkeeping ends with this entry; the primary track is ADR-000 (FD-001–003).
+
+No Protocol Observatory status, gate, decision, or measured count changes as a
+result of this entry.

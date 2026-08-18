@@ -53,8 +53,11 @@ rules below apply to both.
    than the author, and the results are recorded against the exact SHA in
    `CORRECTIONS.md` with the commands used.
 2. Reproduction confirms a measurement; it does not upgrade any status.
-3. What was not reproduced is recorded (precedent: no fresh console or GPU
-   probe at M2; browser gate never run in CI).
+3. What was not reproduced is recorded (precedent: at M2, no fresh console or
+   GPU probe and no CI run of the browser gate).
+4. CI runs and deployments are GitHub's SHA-keyed run and deployment records;
+   the ledger cites them by URL and does not transcribe them. No commit is made
+   whose sole purpose is to record a previous commit's SHA or CI run.
 
 ## 5. Backup before integrate; provenance-preserving merges
 
@@ -100,7 +103,7 @@ rules below apply to both.
 ## 7. Checkpoint log
 
 Checkpoint lineage (SHAs, parents, content, and what was measured on each
-tree) is recorded in `CORRECTIONS.md` under "Checkpoint lineage". Because
-`.github/workflows/deploy.yml` publishes `main`, the Pages deployment tracks
-`main` = `7af2394` until the founder pushes; nothing in the lineage has been
-pushed.
+tree) is recorded in `CORRECTIONS.md` under "Checkpoint lineage", together
+with the current publication state. `.github/workflows/deploy.yml` publishes
+`main` to Pages on push and, from `ddbf12d`, declares `deploy.needs:
+[build, browser-gate]`.

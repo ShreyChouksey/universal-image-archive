@@ -1,6 +1,6 @@
 # ADR-000: Protocol Outcome and Sovereign-Ledger Requirements
 
-- **Status:** DRAFT — FOUNDER DECISIONS REQUIRED
+- **Status:** DRAFT — Batch 1 (FD-001, FD-002, FD-003) decided by the founder on 2026-08-19; acceptance pending the §9 checklist
 - **Date:** 2026-08-13
 - **Primary decision:** D-001
 - **Related decisions:** D-004, D-005, D-014
@@ -52,48 +52,132 @@ their narrow factual scope:
    prototypes. They do not select a production state model, consensus family,
    token, authentication profile, or commitment construction.
 
-## 3. Founder Decision Batch 1 — required now
+## 3. Founder Decision Batch 1 — decided 2026-08-19
+
+Decision record: the text below was proposed by an assistant, adversarially
+reviewed, and then **chosen and adopted by the founder on 2026-08-19** as the
+founder's own decision (option "A+R", review date 2027-08-13, negative
+necessity case accepted). It is founder text from this date; §1's prohibition
+on assistant-filled decisions is satisfied by explicit adoption, recorded here.
+
+Term used throughout. An *address* is the exact byte string of a format
+(row-major pixels, big-endian channels). Protocol identity of an address is the
+pair **(format descriptor, bytes)**, where a format descriptor is (width,
+height, bits-per-channel ∈ {8, 16}, channels = 3, geometry ∈ {plane, sphere}).
+Hex and decimal renderings are derived and non-normative.
 
 ### FD-001 — Exact primary guarantee
 
-**FOUNDER DECISION REQUIRED.** Supply one sentence of the following form:
+**DECIDED (founder, 2026-08-19).**
 
-> UIA enables `[named actors]` to `[perform exact operation]` over
-> `[identified objects/state]`, and independently verifying nodes can establish
-> `[exact safety/finality/availability result]` under `[named assumptions]`.
+> UIA enables any party holding a format descriptor and either the exact
+> address bytes or a derivation recipe (generator identifier and version, four
+> 32-bit seed words, round count, signed offset) to materialise the exact
+> address bytes of that format and to encode or decode them in the versioned
+> address container, and independently verifying nodes — any conforming
+> implementation, with no network, ledger, or trusted party — can establish by
+> recomputation alone that a given (format descriptor, recipe) yields exactly
+> one byte string, that a given container decodes to exactly one (format
+> descriptor, bytes) pair or is rejected, and that these results agree with the
+> published conformance vectors, under the assumptions that the format,
+> generator, and container specifications are versioned and published with
+> positive, boundary, and rejection vectors, and that recipes and addresses are
+> public inputs with no confidentiality assumed; no finality, availability,
+> uniqueness-of-recipe, authenticity, or time result is claimed.
 
-The sentence MUST describe a protocol-verifiable result. It MUST NOT promise
-legal ownership, authorship, identity, permanence, truth, decentralization, or
-security unless the corresponding authority and failure model are defined.
+Explicitly not claimed: that a byte string has only one recipe (distinct
+seed/rounds/offset triples may reach the same bytes); that an address, recipe,
+or container evidences who produced it, when, or that anyone else holds it;
+that any implementation stores, serves, or preserves bytes; that screen pixels
+are identical across renderers (only bytes and container bytes are
+conformance-checked; the same bytes are a different picture as plane versus
+sphere); or any ownership, authorship, identity, permanence, truth,
+decentralization, or security property (§4). Freezing the specifications is a
+G1 act (ADR-001), not an act of this ADR.
+
+FD-001 is **neutral on D-002**: whether a derivation recipe is part of artifact
+identity or only a derivation path remains OPEN for ADR-001
+(`repr-artifact-identity`). The `.uia` container carries no provenance, so this
+guarantee does not extend to recipe identity through the file.
+
+Evidence available today is application evidence only (Charter §8), not gate
+evidence: the M1 identity contract, the UIA2 container round-trip, and the
+browser oracles recorded in `test/browser/README.md`. The founder MAY later
+nominate the archive application as a candidate reference implementation, to
+be judged against the frozen specification and immutable vectors
+(`assurance-reference`); until then it remains application evidence.
 
 ### FD-002 — V1 capability matrix
 
-Mark every row **required**, **deferred**, or **excluded**. “Research objective”
-is not a V1 capability state.
+**DECIDED (founder, 2026-08-19).** Decision cells are exactly one of
+Required / Deferred / Excluded; re-entry conditions live in their own column.
 
-| Capability | Decision | Exact V1 result if required |
-|---|---|---|
-| Exact archive addressing and materialization | **FOUNDER DECISION REQUIRED** | |
-| Authenticated media/registration claims | **FOUNDER DECISION REQUIRED** | |
-| Transferable value or scarce assets | **FOUNDER DECISION REQUIRED** | |
-| General-purpose or constrained programmable execution | **FOUNDER DECISION REQUIRED** | |
-| Public permissionless block production/validation | **FOUNDER DECISION REQUIRED** | |
+| Capability | Decision | Exact V1 result if required | Re-entry trigger |
+|---|---|---|---|
+| Exact archive addressing and materialization | **Required** | From the same (format descriptor, recipe) every conforming implementation produces identical address bytes; from the same container bytes every conforming implementation decodes identical (format descriptor, bytes) or rejects; the container encoding of a given (format descriptor, bytes) is identical. Generator and container specifications are versioned; positive, boundary, and rejection vectors are published covering: format tuple; generator id + version; four uint32 seed words; the generator's counter/key layout; the declared round range (12–24; 11 and 25 rejected); signed offset including the safe-integer bound and wrap at both ends; expected bytes; expected 20-byte container header + payload; malformed containers (bad magic, truncation, header/payload length mismatch, bpc ∉ {8,16}, channels ≠ 3, zero width/height, non-integer offset); and the three decoder ambiguities decided rather than inherited (geometry field ∉ {0,1}, currently read as plane; reserved ≠ 0, currently ignored; legacy 16-byte UIA1, currently accepted as plane). At least two independently written implementations pass all vectors. No uniqueness, authenticity, confidentiality, storage, or availability result is included. | — |
+| Authenticated media/registration claims | **Deferred** | — | A named ADR after Batch 4 resolves claim predicate, issuer authority, privacy/takedown, and redress |
+| Transferable value or scarce assets | **Deferred** | — | FD-003 reopen |
+| General-purpose or constrained programmable execution | **Excluded** | — | Requires reopening this ADR |
+| Public permissionless block production/validation | **Deferred** | — | FD-003 reopen |
 
-The selected rows define which later objects have a legitimate purpose. This
-ADR does not yet define their wire schemas.
+Under this matrix V1 uses only the raw raster bytes (`RawTile3072` is the
+8 × 8 RGB16 instance of the general raster format; Charter §2.1 unchanged) and
+the versioned address container. `BlockCommit512`, `VisualCommit3072`,
+`CanonicalTranscriptV1`, and `WideTelemetry3072-v0` (Charter §2.2) have no V1
+purpose and no V1 claim; Charter §3 rows other than "Raw visual namespace" are
+not applicable to V1 and are neither proven nor claimed. Batch 5 vocabulary:
+native token = **conditional** (on FD-003 reopen), not "none". The current
+generator identifier `uia-philox4x32-image`/1, the UIA2 magic and header
+layout, and the 12–24 round range are candidate inputs to ADR-001, **not**
+frozen production identifiers (§8).
 
 ### FD-003 — Sovereign-chain necessity and kill criterion
 
-**FOUNDER DECISION REQUIRED.** Name the indispensable property that cannot be
-met adequately by a signed database, transparency log, existing L1/L2, or
-application-specific rollup. Then state a falsifiable kill criterion:
+**DECIDED (founder, 2026-08-19): option A+R; review date 2027-08-13; negative
+necessity case accepted as satisfying the G0 "necessity case" requirement.**
 
-> UIA requires a sovereign ledger because `[indispensable property]`.
-> The sovereign-ledger design will be abandoned, deferred, or narrowed if
-> `[measurable condition showing no material advantage or unacceptable cost]`.
+> UIA requires a sovereign ledger because of one candidate property and no
+> other: permissionless, censorship-resistant ordering of address-bound state
+> whose security budget and governance are independent of any other chain — a
+> property that no FD-002 Required V1 capability needs.
+>
+> **DEFERRED on acceptance:** no FD-002 Required capability needs
+> permissionless ordering or native scarce value.
+> **REOPENED for design only when BOTH** (a) a later accepted ADR promotes a
+> capability to Required that needs that property, **and** (b) that ADR's
+> Batch 2 requirement profile lists at least one §6 axis row fully filled
+> (comparator + version, workload/adversary, metric, threshold, measurement
+> method, expiry) that a transparency log with external checkpoints, a named
+> existing L1/L2, and an application-specific rollup each fail by the stated
+> metric — measured by a named reviewer who is not the author and recorded in
+> `docs/protocol/CORRECTIONS.md`.
+> **ABANDONED** (Charter §1 objective 2 changes from "active research" to
+> "closed; re-entry requires a new ADR") at the first scheduled ADR-000 review
+> on or after **2027-08-13**, if on that date no §6 axis row 2–6 is fully
+> filled, or every filled row's reproducible measurement shows UIA ≤ comparator.
+> **NARROWED** if a subset of axes survive. The review date is calendar-fixed
+> and does not depend on a reopen.
 
-This is not a request to choose PoW, PoS, or BFT. Mechanism selection belongs
-to the later consensus/economics/network co-design stage.
+This is a negative necessity case, accepted by the founder as such.
+
+**Research track (the "R" in A+R).** The sovereign ledger is recorded as a
+named research track with its own non-production, fail-closed gates, none of
+which touches authoritative validation (Charter §4):
+
+- **R0** — necessity case (`mission-sovereign-case`): negative today; the
+  completion item "No-chain alternative compared" is not met and requires the
+  comparator rows.
+- **R1** — a Batch 2 requirement profile for the hypothetical Required
+  capability.
+- **R2** — a reproducible comparator measurement on a fully filled §6 axis row,
+  by a named reviewer who is not the author.
+- **R3** — a promotion ADR that flips an FD-002 row from Deferred to Required.
+
+Each R-gate produces Observatory evidence only under `mission-sovereign-chain`
+and `mission-sovereign-case`. Charter §1 objective 2 stays "active research"
+until the review date acts. Existing 3,072-bit prototypes keep an experimental,
+non-authoritative home under `govern-research`; they are not promoted by this
+decision.
 
 ## 4. Explicit non-guarantees
 
@@ -207,9 +291,9 @@ Engineering MUST NOT infer or freeze:
 
 ADR-000 may move from `DRAFT` to `ACCEPTED` only when:
 
-- [ ] FD-001 supplies one exact primary guarantee.
-- [ ] FD-002 classifies every V1 capability.
-- [ ] FD-003 supplies a sovereign-chain necessity and kill criterion.
+- [x] FD-001 supplies one exact primary guarantee (decided 2026-08-19).
+- [x] FD-002 classifies every V1 capability (decided 2026-08-19).
+- [x] FD-003 supplies a sovereign-chain necessity and kill criterion (decided 2026-08-19; negative case accepted; review 2027-08-13).
 - [ ] explicit non-guarantees are approved;
 - [ ] measurable requirement batches are completed or assigned to named,
       blocking follow-on ADRs with no production assumption;

@@ -1,5 +1,26 @@
 # Universal Image Archive
 
+> **Project status: paused and sealed by the founder on 2026-08-19.**
+>
+> This repository is kept as a complete, honest record. The deployed archive at
+> https://shreychouksey.github.io/universal-image-archive/ is the verified state
+> (every deploy passes the browser characterization gate). The founding ambition
+> — a cryptocurrency deriving a security advantage from the 2^3072 tile space —
+> was examined across three independent audits and found not achievable:
+> key-space size is not security, primitives cap near 256-bit, and collision
+> security is bounded at half the output length, so "3,072-bit security" from a
+> 384-byte value is not a reachable target. Inventing new primitives was
+> rejected as having no path to trust. No current use case for the archive alone
+> was identified by the founder.
+>
+> What stands: an exact, bijective image archive with a tested identity
+> contract; a protocol governance framework that reports 0/11 gates truthfully;
+> ADR-000 Batch 1 decided (option A+R — V1 is exact addressing only; the
+> sovereign ledger is deferred as a gated research track with a calendar review
+> on **2027-08-13**). To resume: read `docs/protocol/CORRECTIONS.md` (lineage
+> and publication state), then `docs/protocol/adr-000-*.md` §3. The
+> "bigger bits = more secure" question is settled and should not be reopened.
+
 Every image that can be drawn on a 3840 × 2160 grid at 48-bit colour, addressable and
 reachable in the browser. The archive holds 10<sup>119,849,433</sup> images and stores
 none of them.

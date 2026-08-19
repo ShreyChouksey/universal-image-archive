@@ -4,6 +4,8 @@
 - **Checkpoint date:** 2026-08-14
 - **Protocol effect:** None. No gate, decision, primitive, or implementation is
   advanced by this document.
+- **Project status:** paused and sealed by the founder on 2026-08-19 (see the
+  sealing entry at the end of this file). The ledger is complete to that date.
 
 This file preserves corrections that cannot be expressed safely by rewriting
 published history. `SHIPS` means the affected source is in `src/main.ts`'s
@@ -642,6 +644,53 @@ in the shipping closure) open; six thin engine tests; deferred archive items.
 previous commit's SHA or CI run. This entry's own pull-request run and the
 Deploy run of its merge are GitHub's records and are not transcribed here.
 Bookkeeping ends with this entry; the primary track is ADR-000 (FD-001–003).
+
+No Protocol Observatory status, gate, decision, or measured count changes as a
+result of this entry.
+
+## Seal — project paused by the founder (recorded 2026-08-19)
+
+Scope: `README.md` status note and this entry only. No code, test, workflow,
+Observatory, decision-register, or ADR change.
+
+**Decision.** The founder paused and sealed the project on 2026-08-19 after
+concluding, with Claude, CodeX, and AG in agreement, that the founding aim — a
+cryptocurrency whose security advantage derives from the 2^3072 state space of
+the 8 × 8 RGB16 tile — is not achievable: the state space is representational
+cardinality (Charter §2.1, ADR-000 settled constraint 2); collision security
+of any hash is at most half its output, so 3,072-bit collision security from a
+384-byte value is impossible; primitives and signature standards cap near
+256-bit and security past that is physically meaningless, quantum included
+(Grover gives only a square-root speedup; Shor attacks structure, not size);
+and a new primitive designed here would have no path to trust without years of
+public cryptanalysis. No current use case for the archive alone was identified.
+Honest directions, if revived: the archive as product; visual commitments and
+fingerprints (a 256-bit-secure hash rendered as a tile); a small specification
+with conformance vectors; image existence proofs via existing anchors
+(OpenTimestamps, C2PA) without a new chain.
+
+**State at seal.** GitHub default branch `main` = `3ed8106` (merge of PR #3,
+ADR-000 Batch 1). Chain M0–M6 recorded above, SHA-cited. Pages deployment
+tracks the last gated Deploy run (GitHub record). Observatory 0/11 gates,
+84 obligations, 12 systems, 15 open decisions; D-001–D-015 OPEN; ADR-000
+DRAFT with FD-001/002/003 decided (option A+R, negative necessity case
+accepted, calendar review **2027-08-13**); ADR-001 PROPOSED. Anti-loop rule
+(§4.4 of the discipline document) in force.
+
+**Open at seal, unchanged.** Founder dispositions 1 (AG duplicate specs
+retired, sources at `4e63490`), 2 (`src/core/zkPlate.ts` in the shipping
+closure with corrected comments), 3 residue (`refs/notes/commits` unpublished),
+4(ii) (no branch protection or rulesets); six thin engine tests; deferred
+archive items (large-address `a=` permalink abbreviation, `syncUrl` drops
+unknown keys, head-step control, delete/save races, worker revision tokens);
+no fresh GPU-probe capture since M1.
+
+**How to resume.** Read this file's "Checkpoint lineage" and publication-state
+paragraphs, then ADR-000 §3. Run the gates before trusting any number: `npm
+run typecheck && npm run typecheck:browser && npm test && npm run build &&
+npm run test:browser`. The "bigger bits = more secure" question is settled and
+should not be reopened; the FD-003 review on 2027-08-13 is the only scheduled
+protocol event.
 
 No Protocol Observatory status, gate, decision, or measured count changes as a
 result of this entry.
